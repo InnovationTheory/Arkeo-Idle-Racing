@@ -1,0 +1,700 @@
+openapi: 3.0.3
+info:
+  title: Arkeo Racing API
+  description: API for the Arkeo Racing game - a horse racing simulation powered by blockchain service provider metrics.
+  version: 0.1.0
+  contact:
+    name: Arkeo Racing
+servers:
+  - url: /api
+    description: API base path
+
+tags:
+  - name: Users
+    description: User session and wallet management
+  - name: Races
+    description: Race data and results
+  - name: Betting
+    description: Selections and tickets
+  - name: Bank
+    description: Payment and wallet info
+  - name: Admin
+    description: Administrative operations
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns server health status
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /me:
+    get:
+      tags: [Users]
+      summary: Get current user
+      description: Returns current user session, creating one if none exists
+      responses:
+        '200':
+          description: User session info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /me/wallet:
+    get:
+      tags: [Users]
+      summary: Get wallet info
+      description: Returns wallet address and chain configuration
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Wallet and chain info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletInfo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Users]
+      summary: Connect wallet
+      description: Links a wallet address to the user session
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [walletAddress]
+              properties:
+                walletAddress:
+                  type: string
+                  description: Arkeo wallet address (bech32)
+                  example: arkeo1abc123...
+                nickname:
+                  type: string
+                  description: Display nickname (3-24 chars, unique)
+                  example: RaceFan42
+      responses:
+        '200':
+          description: Wallet connected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /me/wallet/disconnect:
+    post:
+      tags: [Users]
+      summary: Disconnect wallet
+      description: Clears the session cookie
+      responses:
+        '200':
+          description: Session cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+
+  /me/nickname:
+    post:
+      tags: [Users]
+      summary: Update nickname
+      description: Sets or updates user display nickname
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nickname]
+              properties:
+                nickname:
+                  type: string
+                  description: Display nickname (3-24 chars, unique)
+                  example: SpeedDemon
+      responses:
+        '200':
+          description: Nickname updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nickname:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /me/wallet/balance:
+    get:
+      tags: [Users]
+      summary: Get wallet balance
+      description: Fetches live balance from Arkeo chain
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Wallet balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balance:
+                    type: string
+                    example: "1000000uarkeo"
+        '503':
+          description: Balance unavailable
+
+  /races/current:
+    get:
+      tags: [Races]
+      summary: Get current race
+      description: Returns the active or upcoming race
+      responses:
+        '200':
+          description: Current race data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Race'
+        '404':
+          description: No active race
+
+  /races:
+    get:
+      tags: [Races]
+      summary: List races
+      description: Returns paginated list of races
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of races
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  races:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RaceSummary'
+                  total:
+                    type: integer
+
+  /races/{raceId}:
+    get:
+      tags: [Races]
+      summary: Get race by ID
+      parameters:
+        - $ref: '#/components/parameters/raceId'
+      responses:
+        '200':
+          description: Race details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Race'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /races/{raceId}/polls:
+    get:
+      tags: [Races]
+      summary: Get race polls
+      description: Returns service provider health poll data
+      parameters:
+        - $ref: '#/components/parameters/raceId'
+        - name: phase
+          in: query
+          schema:
+            type: string
+            enum: [prep, live]
+      responses:
+        '200':
+          description: Poll data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  polls:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Poll'
+
+  /races/{raceId}/results:
+    get:
+      tags: [Races]
+      summary: Get race results
+      description: Returns final placements and payouts
+      parameters:
+        - $ref: '#/components/parameters/raceId'
+      responses:
+        '200':
+          description: Race results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RaceResults'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /races/{raceId}/selection:
+    get:
+      tags: [Betting]
+      summary: Get user's selection
+      description: Returns current user's horse selection for the race
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/raceId'
+      responses:
+        '200':
+          description: Current selection
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  selection:
+                    $ref: '#/components/schemas/Selection'
+    delete:
+      tags: [Betting]
+      summary: Clear selection
+      description: Removes the current user's horse selection for the race
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/raceId'
+      responses:
+        '200':
+          description: Selection cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  selection:
+                    nullable: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    post:
+      tags: [Betting]
+      summary: Set selection
+      description: Select a horse for the race
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/raceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [raceHorseId]
+              properties:
+                raceHorseId:
+                  type: string
+      responses:
+        '200':
+          description: Selection saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Selection'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Picks closed
+
+  /races/{raceId}/selections:
+    get:
+      tags: [Betting]
+      summary: Get all selections
+      description: Returns all user selections for a race
+      parameters:
+        - $ref: '#/components/parameters/raceId'
+      responses:
+        '200':
+          description: All selections
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  selections:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SelectionPublic'
+
+  /bank:
+    get:
+      tags: [Bank]
+      summary: Get bank info
+      description: Returns hot wallet address and chain configuration
+      responses:
+        '200':
+          description: Bank info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BankInfo'
+
+  /admin/races/create-now:
+    post:
+      tags: [Admin]
+      summary: Create race immediately
+      description: Forces creation of a new race
+      security:
+        - adminKey: []
+      responses:
+        '200':
+          description: Race created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  raceId:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/races/start-now:
+    post:
+      tags: [Admin]
+      summary: Force start race
+      description: Immediately starts the current race
+      security:
+        - adminKey: []
+      responses:
+        '200':
+          description: Race started
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/races/end-now:
+    post:
+      tags: [Admin]
+      summary: Force end race
+      description: Immediately ends the current race
+      security:
+        - adminKey: []
+      responses:
+        '200':
+          description: Race ended
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: racing_session
+    adminKey:
+      type: apiKey
+      in: header
+      name: X-Admin-Key
+
+  parameters:
+    raceId:
+      name: raceId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Race UUID
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: invalid_request
+
+    User:
+      type: object
+      properties:
+        userId:
+          type: string
+        handle:
+          type: string
+        nickname:
+          type: string
+          nullable: true
+        walletAddress:
+          type: string
+          nullable: true
+        balance:
+          type: integer
+
+    WalletInfo:
+      type: object
+      properties:
+        walletAddress:
+          type: string
+          nullable: true
+        nickname:
+          type: string
+          nullable: true
+        chain:
+          type: object
+          properties:
+            chainId:
+              type: string
+            chainName:
+              type: string
+            rpcUrl:
+              type: string
+            restUrl:
+              type: string
+            denom:
+              type: string
+            decimals:
+              type: integer
+            ticker:
+              type: string
+            bech32Prefix:
+              type: string
+
+    Race:
+      type: object
+      properties:
+        raceId:
+          type: string
+        status:
+          type: string
+          enum: [picking, starting, live, finished, voided]
+        track:
+          type: object
+          properties:
+            name:
+              type: string
+        weather:
+          type: object
+          properties:
+            name:
+              type: string
+        pickCloseAt:
+          type: string
+          format: date-time
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+          nullable: true
+        horses:
+          type: array
+          items:
+            $ref: '#/components/schemas/RaceHorse'
+
+    RaceSummary:
+      type: object
+      properties:
+        raceId:
+          type: string
+        status:
+          type: string
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    RaceHorse:
+      type: object
+      properties:
+        raceHorseId:
+          type: string
+        displayName:
+          type: string
+        handicapTier:
+          type: string
+          enum: [Light, Standard, Heavy]
+        formScore:
+          type: number
+        difficultyMultiplier:
+          type: number
+        archetype:
+          type: string
+          enum: [front_runner, stalker, stretch_runner, grinder, burst, erratic]
+        temperament:
+          type: string
+          enum: [calm, normal, volatile]
+        serviceType:
+          type: object
+          properties:
+            displayName:
+              type: string
+            iconKey:
+              type: string
+            colorHex:
+              type: string
+        assignedProvider:
+          type: object
+          nullable: true
+          properties:
+            providerPubkey:
+              type: string
+            moniker:
+              type: string
+              nullable: true
+        position:
+          type: number
+        placement:
+          type: integer
+          nullable: true
+
+    Poll:
+      type: object
+      properties:
+        raceHorseId:
+          type: string
+        tick:
+          type: integer
+        latencyMs:
+          type: number
+        probeOk:
+          type: boolean
+        errorType:
+          type: string
+          nullable: true
+
+    RaceResults:
+      type: object
+      properties:
+        raceId:
+          type: string
+        placements:
+          type: array
+          items:
+            type: object
+            properties:
+              placement:
+                type: integer
+              raceHorseId:
+                type: string
+              horseName:
+                type: string
+        payouts:
+          type: array
+          items:
+            type: object
+            properties:
+              placement:
+                type: integer
+              amount:
+                type: integer
+              walletAddress:
+                type: string
+
+    Selection:
+      type: object
+      properties:
+        selectionId:
+          type: string
+        raceHorseId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    SelectionPublic:
+      type: object
+      properties:
+        selectionId:
+          type: string
+        raceHorseId:
+          type: string
+        bettor:
+          type: object
+          properties:
+            nickname:
+              type: string
+              nullable: true
+            walletAddress:
+              type: string
+              nullable: true
+        picks:
+          type: array
+          items:
+            type: object
+            properties:
+              horseName:
+                type: string
+
+    BankInfo:
+      type: object
+      properties:
+        hotWalletAddress:
+          type: string
+        chain:
+          type: object
+          properties:
+            chainId:
+              type: string
+            denom:
+              type: string
+            decimals:
+              type: integer

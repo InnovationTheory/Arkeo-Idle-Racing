@@ -1,0 +1,16 @@
+.DS_Store
+.idea/
+
+# Env files
+.env
+infra/.env
+
+# Dependencies and builds
+node_modules/
+dist/
+apps/**/dist/
+
+# Local data
+infra/config/postgres-data/
+infra/config/subscriber-data/
+infra/config/arkeo-wallet/

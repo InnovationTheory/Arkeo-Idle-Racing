@@ -1,0 +1,445 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RaceStatus {
+  scheduled
+  picking
+  running
+  finished
+  voided
+}
+
+enum HandicapTier {
+  Light
+  Medium
+  Heavy
+}
+
+enum TicketType {
+  single
+  pick3
+}
+
+enum ProbeType {
+  ethereum_jsonrpc
+  cosmos_rpc
+  cosmos_rest
+}
+
+enum RaceArchetype {
+  front_runner
+  stalker
+  stretch_runner
+  grinder
+  burst
+  erratic
+}
+
+enum Temperament {
+  calm
+  normal
+  volatile
+}
+
+enum TrackSurface {
+  dirt
+  turf
+  synthetic
+}
+
+enum SurfaceAffinity {
+  dirt_specialist
+  turf_specialist
+  mud_lover
+  all_surface
+}
+
+enum RaceDayStatus {
+  scheduled
+  polling
+  picking
+  running
+  complete
+  canceled
+}
+
+enum RaceDayRoundStatus {
+  scheduled
+  running
+  complete
+}
+
+enum RaceDayHeatStatus {
+  scheduled
+  picking
+  running
+  finished
+  voided
+}
+
+model User {
+  id           String   @id @default(uuid())
+  handle       String   @unique
+  sessionToken String   @unique @default(uuid())
+  walletAddress String?  @unique
+  nickname     String?
+  nicknameLower String?  @unique
+  createdAt    DateTime @default(now())
+  balance      Balance?
+  tickets      Ticket[]
+  payouts      Payout[]
+  selections   RaceSelection[]
+  raceDaySelections RaceDaySelection[]
+  raceDayPayouts    RaceDayPayout[]
+}
+
+model Balance {
+  userId  String @id
+  credits Int
+  user    User   @relation(fields: [userId], references: [id])
+}
+
+model Race {
+  id                  String      @id @default(uuid())
+  status              RaceStatus
+  trackId             String
+  weatherId           String
+  createdAt           DateTime    @default(now())
+  pickCloseAt         DateTime
+  startAt             DateTime
+  endAt               DateTime
+  intakeCredits       Int         @default(0)
+  payoutBudgetCredits Int         @default(0)
+  track               Track       @relation(fields: [trackId], references: [id])
+  weather             Weather     @relation(fields: [weatherId], references: [id])
+  raceHorses          RaceHorse[]
+  tickets             Ticket[]
+  payouts             Payout[]
+  selections          RaceSelection[]
+  events              RaceEvent[]
+  polls               RaceHorsePoll[]
+  raceDayHeat         RaceDayHeat? @relation("RaceDayHeatRace")
+
+  @@index([status, startAt])
+}
+
+model Track {
+  id            String       @id
+  name          String
+  surface       TrackSurface @default(dirt)
+  durationSecs  Int
+  tickMs        Int
+  rampConfigJson Json
+  thresholdsJson Json
+  races         Race[]
+}
+
+model Weather {
+  id            String  @id
+  name          String
+  modifiersJson Json
+  races         Race[]
+}
+
+model Horse {
+  id           String       @id @default(uuid())
+  displayName  String       @unique
+  baseStableId String?
+  historyJson  Json?
+  handicapTier HandicapTier
+  formScore    Float
+  // Career record (W-P-S-A)
+  wins         Int          @default(0)  // 1st place finishes
+  places       Int          @default(0)  // 2nd place finishes
+  shows        Int          @default(0)  // 3rd place finishes
+  advances     Int          @default(0)  // Times advanced to next round
+  races        Int          @default(0)  // Total heats entered
+  dnfs         Int          @default(0)  // Did not finish (eliminated mid-race)
+  raceHorses   RaceHorse[]
+  raceDayHorses RaceDayHorse[]
+}
+
+model ServiceType {
+  id          String    @id
+  displayName String
+  iconKey     String
+  colorHex    String
+  probeType   ProbeType
+  providers   Provider[]
+  raceHorses  RaceHorse[]
+}
+
+model Provider {
+  id               String  @id @default(uuid())
+  serviceTypeId    String
+  providerPubkey   String
+  moniker          String?
+  endpoint         String
+  region           String?
+  reliabilityScore Float
+  serviceType      ServiceType @relation(fields: [serviceTypeId], references: [id])
+  raceHorses       RaceHorse[]
+  polls            RaceHorsePoll[]
+
+  @@index([serviceTypeId])
+  @@unique([serviceTypeId, providerPubkey])
+}
+
+model RaceHorse {
+  id               String   @id @default(uuid())
+  raceId           String
+  horseId          String
+  serviceTypeId    String
+  lane             Int      @default(0)
+  archetype        RaceArchetype @default(stalker)
+  temperament      Temperament   @default(normal)
+  surfaceAffinity  SurfaceAffinity @default(all_surface)
+  assignedProviderId String?
+  placement        Int?
+  eliminatedAtTick Int?
+  odds             Float?
+  race             Race     @relation(fields: [raceId], references: [id])
+  horse            Horse    @relation(fields: [horseId], references: [id])
+  serviceType      ServiceType @relation(fields: [serviceTypeId], references: [id])
+  assignedProvider Provider? @relation(fields: [assignedProviderId], references: [id])
+  picks            Pick[]
+  selections       RaceSelection[]
+  polls            RaceHorsePoll[]
+
+  @@index([raceId])
+}
+
+model RaceDay {
+  id               String           @id @default(uuid())
+  name             String
+  status           RaceDayStatus    @default(scheduled)
+  createdAt        DateTime         @default(now())
+  startAt          DateTime?
+  tickMs           Int              @default(1000)
+  raceDurationSecs Int              @default(720)
+  pickWindowSecs   Int              @default(90)
+  bufferSecs       Int              @default(30)
+  totalRounds      Int              @default(4)
+  poolCredits      Int              @default(5)
+  heatsConfigJson  Json?
+  rounds           RaceDayRound[]
+  heats            RaceDayHeat[]
+  horses           RaceDayHorse[]
+  selections       RaceDaySelection[]
+  payouts          RaceDayPayout[]
+
+  @@index([status, startAt])
+}
+
+model RaceDayHorse {
+  id              String      @id @default(uuid())
+  raceDayId       String
+  horseId         String
+  seedOrder       Int
+  archetype       RaceArchetype?
+  temperament     Temperament?
+  surfaceAffinity SurfaceAffinity?
+  eliminatedRound Int?
+  eliminatedHeat  Int?
+  finalPlacement  Int?
+  raceDay         RaceDay     @relation(fields: [raceDayId], references: [id])
+  horse           Horse       @relation(fields: [horseId], references: [id])
+  selections      RaceDaySelection[]
+  payouts         RaceDayPayout[]
+
+  @@index([raceDayId, seedOrder])
+  @@unique([raceDayId, horseId])
+}
+
+model RaceDayRound {
+  id          String           @id @default(uuid())
+  raceDayId   String
+  roundNumber Int
+  status      RaceDayRoundStatus @default(scheduled)
+  heatsCount  Int
+  startsAt    DateTime?
+  endsAt      DateTime?
+  raceDay     RaceDay          @relation(fields: [raceDayId], references: [id])
+  heats       RaceDayHeat[]
+
+  @@unique([raceDayId, roundNumber])
+  @@index([raceDayId])
+}
+
+model RaceDayHeat {
+  id            String          @id @default(uuid())
+  raceDayId     String
+  roundNumber   Int
+  heatNumber    Int
+  status        RaceDayHeatStatus @default(scheduled)
+  startsAt      DateTime?
+  pickCloseAt   DateTime?
+  endsAt        DateTime?
+  raceId        String?         @unique
+  entrantsJson  Json?
+  advancersJson Json?
+  resultsJson   Json?
+  metadataJson  Json?
+  raceDay       RaceDay         @relation(fields: [raceDayId], references: [id])
+  round         RaceDayRound    @relation(fields: [raceDayId, roundNumber], references: [raceDayId, roundNumber])
+  race          Race?           @relation("RaceDayHeatRace", fields: [raceId], references: [id])
+
+  @@index([raceDayId, roundNumber])
+  @@index([raceId])
+}
+
+model Ticket {
+  id                 String     @id @default(uuid())
+  raceId             String
+  userId             String
+  type               TicketType
+  costCredits        Int
+  paymentTxHash      String?    @unique
+  paymentFromAddress String?
+  paymentToAddress   String?
+  paymentDenom       String?
+  paymentAmount      String?
+  paymentHeight      Int?
+  paymentTimestamp   DateTime?
+  createdAt          DateTime   @default(now())
+  race               Race       @relation(fields: [raceId], references: [id])
+  user               User       @relation(fields: [userId], references: [id])
+  picks              Pick[]
+
+  @@index([raceId])
+  @@index([userId])
+}
+
+model Pick {
+  id          String    @id @default(uuid())
+  ticketId    String
+  raceHorseId String
+  ticket      Ticket    @relation(fields: [ticketId], references: [id])
+  raceHorse   RaceHorse @relation(fields: [raceHorseId], references: [id])
+
+  @@index([ticketId])
+}
+
+model Payout {
+  id            String   @id @default(uuid())
+  raceId        String
+  userId        String
+  amountCredits Int
+  breakdownJson Json
+  createdAt     DateTime @default(now())
+  race          Race     @relation(fields: [raceId], references: [id])
+  user          User     @relation(fields: [userId], references: [id])
+
+  @@index([raceId])
+  @@index([userId])
+}
+
+model RaceSelection {
+  id          String   @id @default(uuid())
+  raceId      String
+  userId      String
+  raceHorseId String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  race        Race     @relation(fields: [raceId], references: [id])
+  user        User     @relation(fields: [userId], references: [id])
+  raceHorse   RaceHorse @relation(fields: [raceHorseId], references: [id])
+
+  @@unique([raceId, userId])
+  @@index([raceId])
+  @@index([userId])
+}
+
+model RaceDaySelection {
+  id             String      @id @default(uuid())
+  raceDayId      String
+  userId         String
+  raceDayHorseId String
+  createdAt      DateTime     @default(now())
+  raceDay        RaceDay      @relation(fields: [raceDayId], references: [id])
+  user           User         @relation(fields: [userId], references: [id])
+  raceDayHorse   RaceDayHorse @relation(fields: [raceDayHorseId], references: [id])
+
+  @@unique([raceDayId, userId, raceDayHorseId])
+  @@index([raceDayId, userId])
+  @@index([raceDayHorseId])
+}
+
+model RaceDayPayout {
+  id              String       @id @default(uuid())
+  raceDayId       String
+  userId          String
+  raceDayHorseId  String
+  horseDisplayName String
+  totalReward     Float
+  breakdownJson   Json
+  createdAt       DateTime     @default(now())
+  raceDay         RaceDay      @relation(fields: [raceDayId], references: [id])
+  user            User         @relation(fields: [userId], references: [id])
+  raceDayHorse    RaceDayHorse @relation(fields: [raceDayHorseId], references: [id])
+
+  @@unique([raceDayId, userId, raceDayHorseId])
+  @@index([raceDayId])
+  @@index([userId])
+}
+
+model TicketIdempotency {
+  id           String   @id @default(uuid())
+  raceId       String
+  userId       String
+  key          String
+  ticketId     String
+  responseJson Json
+  createdAt    DateTime @default(now())
+
+  @@unique([raceId, userId, key])
+  @@index([userId])
+  @@index([ticketId])
+}
+
+model RaceEvent {
+  id          String   @id @default(uuid())
+  raceId      String
+  ts          DateTime @default(now())
+  type        String
+  payloadJson Json
+  race        Race     @relation(fields: [raceId], references: [id])
+
+  @@index([raceId])
+}
+
+model RaceHorsePoll {
+  id               String   @id @default(uuid())
+  raceId           String
+  raceHorseId      String
+  providerId       String?
+  tick             Int?
+  prepAttempt      Int?
+  phase            String   @default("live")
+  ts               DateTime @default(now())
+  mode             String
+  latencyMs        Float
+  p95Ms            Float?
+  errorRate        Float?
+  speedFactor      Float?
+  headHeightDelta  Int?
+  errorType        String?
+  errorMessage     String?
+  loadFactor       Float?
+  weatherJson      Json?
+  probeOk          Boolean?
+  probeRequestJson Json?
+  race             Race     @relation(fields: [raceId], references: [id])
+  raceHorse        RaceHorse @relation(fields: [raceHorseId], references: [id])
+  provider         Provider? @relation(fields: [providerId], references: [id])
+
+  @@index([raceId, tick])
+  @@index([raceHorseId, tick])
+  @@index([providerId])
+}

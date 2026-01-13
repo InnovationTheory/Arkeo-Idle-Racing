@@ -1,0 +1,23 @@
+services:
+  arkeo-racing:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.single
+    container_name: arkeo-racing
+    env_file:
+      - ./.env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-arkeo_racing}
+      POSTGRES_USER: ${POSTGRES_USER:-arkeo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-arkeo}
+      PGDATA: ${PGDATA:-/var/lib/postgresql/data/pgdata}
+      DATABASE_URL: ${DATABASE_URL_SINGLE:-postgres://arkeo:arkeo@localhost:5432/arkeo_racing}
+      SERVE_WEB_STATIC: ${SERVE_WEB_STATIC:-1}
+      WEB_STATIC_DIR: ${WEB_STATIC_DIR:-/app/apps/web/dist}
+    ports:
+      - "8081:8081"
+      - "5432:5432"
+    volumes:
+      - ./config/postgres-data:/var/lib/postgresql/data
+      - ./config/subscriber-data:/app/data/subscriber
+      - ./.env:/app/.env

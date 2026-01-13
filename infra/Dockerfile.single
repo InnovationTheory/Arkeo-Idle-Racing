@@ -1,0 +1,40 @@
+FROM postgres:16
+
+ARG GO_VERSION=1.22.4
+
+RUN apt-get update && apt-get install -y curl ca-certificates gnupg git make gcc g++ && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    arch="$(dpkg --print-architecture)" && \
+    case "$arch" in \
+      amd64) goarch="amd64" ;; \
+      arm64) goarch="arm64" ;; \
+      *) echo "Unsupported architecture for Go: $arch" && exit 1 ;; \
+    esac && \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${goarch}.tar.gz" -o /tmp/go.tgz && \
+    rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz && \
+    rm -f /tmp/go.tgz && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY apps/api/package.json apps/api/package-lock.json* ./apps/api/
+COPY apps/web/package.json apps/web/package-lock.json* ./apps/web/
+RUN cd apps/api && npm install
+RUN cd apps/web && npm install
+COPY apps/api ./apps/api
+COPY apps/web ./apps/web
+RUN cd apps/api && npm run build
+RUN cd apps/web && npm run build
+
+COPY infra/single-entrypoint.sh /usr/local/bin/single-entrypoint.sh
+RUN chmod +x /usr/local/bin/single-entrypoint.sh
+
+ENV NODE_ENV=production
+ENV SERVE_WEB_STATIC=1
+ENV WEB_STATIC_DIR=/app/apps/web/dist
+ENV PATH="/usr/local/go/bin:${PATH}"
+
+EXPOSE 8081
+EXPOSE 5432
+
+ENTRYPOINT ["/usr/local/bin/single-entrypoint.sh"]
