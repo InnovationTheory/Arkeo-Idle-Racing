@@ -60,3 +60,4 @@ jobs:
           platforms: linux/amd64,linux/arm64
           build-args: |
             SERVER_URL=${{ vars.SERVER_URL || 'http://localhost:8081' }}
+            WALLETCONNECT_PROJECT_ID=${{ vars.WALLETCONNECT_PROJECT_ID || '' }}
