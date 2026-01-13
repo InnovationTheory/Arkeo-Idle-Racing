@@ -1,6 +1,7 @@
 FROM postgres:16
 
 ARG GO_VERSION=1.22.4
+ARG SERVER_URL=http://localhost:8081
 
 RUN apt-get update && apt-get install -y curl ca-certificates gnupg git make gcc g++ && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
@@ -24,7 +25,10 @@ RUN cd apps/web && npm install
 COPY apps/api ./apps/api
 COPY apps/web ./apps/web
 RUN cd apps/api && npm run build
-RUN cd apps/web && npm run build
+RUN cd apps/web && \
+    VITE_API_BASE_URL=${SERVER_URL} \
+    VITE_WS_URL=$(echo ${SERVER_URL} | sed 's/^http/ws/')/ws \
+    npm run build
 
 COPY infra/single-entrypoint.sh /usr/local/bin/single-entrypoint.sh
 RUN chmod +x /usr/local/bin/single-entrypoint.sh
