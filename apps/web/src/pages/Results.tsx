@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiGet } from "../api";
 import RaceHeader from "../components/RaceHeader";
 import RaceTicketCompact from "../components/RaceTicketCompact";
-import { useRaceCountdown } from "../hooks/useRaceCountdown";
 import { useWalletState } from "../hooks/useWalletState";
+import { useRaceHeader } from "../hooks/useRaceHeader";
 import { useRaceDayTicketHorses } from "../hooks/useRaceDayTicketHorses";
 import HorseSilhouette from "../components/HorseSilhouette";
 import JerseyIcon from "../components/JerseyIcon";
@@ -48,8 +48,16 @@ type RaceSummary = {
 
 export default function Results() {
   const walletState = useWalletState();
-  const { ticketHorses, poolSize } = useRaceDayTicketHorses(walletState.walletAddress);
-  const [raceSummary, setRaceSummary] = useState<RaceSummary | null>(null);
+  const { ticketHorses } = useRaceDayTicketHorses(walletState.walletAddress);
+
+  // Shared RaceHeader data (consistent across all tabs)
+  const {
+    headerRace,
+    remainingMs,
+    poolSize,
+    racedayStatus
+  } = useRaceHeader();
+
   const [races, setRaces] = useState<RaceArchiveEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
@@ -59,7 +67,6 @@ export default function Results() {
   const totalPages = totalCount !== null
     ? Math.max(1, Math.ceil(totalCount / pageSize))
     : null;
-  const remainingMs = useRaceCountdown(raceSummary?.pickCloseAt);
   const horseSize = 60;
   const stackSize = 64;
   const coinSize = 20;
@@ -67,12 +74,6 @@ export default function Results() {
   const tileHeight = 27;
   const horseTop = (stackSize - horseSize) / 2;
   const coinTop = horseTop + 4 - coinSize / 2;
-
-  useEffect(() => {
-    apiGet<RaceSummary>("/api/races/current")
-      .then((race) => setRaceSummary(race?.raceId ? race : null))
-      .catch(() => setRaceSummary(null));
-  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -383,7 +384,7 @@ export default function Results() {
 
   return (
     <div className="flex flex-col gap-6">
-      <RaceHeader race={raceSummary} remainingMs={remainingMs} poolSize={poolSize} />
+      <RaceHeader race={headerRace} remainingMs={remainingMs} poolSize={poolSize} racedayStatus={racedayStatus} />
       <RaceTicketCompact
         raceId={null}
         ticketHorses={ticketHorses}

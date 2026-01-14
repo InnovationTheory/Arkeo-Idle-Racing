@@ -13,6 +13,7 @@ type HeaderRace = {
   racedayHeatNumber?: number | null;
   racedayHeatCount?: number | null;
   racedayStatus?: string | null;
+  racedayName?: string | null;
 };
 
 const surfaceLabels: Record<string, string> = {
@@ -94,7 +95,7 @@ export default function RaceHeader({ race, remainingMs, racedayStatus, poolSize 
           : status === "voided"
             ? "Race Voided"
             : isPolling
-              ? "Preparing Races"
+              ? "Starting Soon"
               : isRaceDayPicking
                 ? `Picks close in ${countdownValue}`
               : isPreparingNextHeat
@@ -103,7 +104,9 @@ export default function RaceHeader({ race, remainingMs, racedayStatus, poolSize 
                   : "Starting..."
                 : isClosingSoon
                   ? "Closing Soon"
-                  : "Betting Open";
+                  : resolvedRaceDayStatus === "scheduled"
+                    ? "Waiting for event to start"
+                    : "Betting Open";
 
   // Status value for the main status display
   const statusValue = !raceReady
@@ -121,7 +124,7 @@ export default function RaceHeader({ race, remainingMs, racedayStatus, poolSize 
           : status === "voided"
             ? "Race Voided"
             : isPolling
-              ? "Preparing Races"
+              ? "Starting Soon"
               : isRaceDayPicking
                 ? `Picks close in ${countdownValue}`
               : isBetweenRounds
@@ -132,14 +135,25 @@ export default function RaceHeader({ race, remainingMs, racedayStatus, poolSize 
                   : "Starting..."
                 : isPicking
                   ? `Picks close in ${countdownValue}`
-                  : "Betting Open";
+                  : resolvedRaceDayStatus === "scheduled"
+                    ? "Waiting for event to start"
+                    : "Betting Open";
 
   return (
     <section className="surface animate-fade-up relative overflow-hidden rounded-3xl p-6">
       <div className="relative z-10 flex flex-col gap-6">
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
-            {showRaceInfo && isRaceDay && racedayLevel !== null && racedayHeatNumber !== null ? (
+            {isAwaitingRaceDay ? (
+              <>
+                <p className="text-xs uppercase tracking-[0.3em] text-slate">
+                  Next heat
+                </p>
+                <h2 className="font-display text-5xl uppercase tracking-[0.12em] text-midnight">
+                  Awaiting RaceDay Event
+                </h2>
+              </>
+            ) : showRaceInfo && isRaceDay && racedayLevel !== null && racedayHeatNumber !== null ? (
               <>
                 <p className="text-xs uppercase tracking-[0.3em] text-slate">
                   {isPreparingNextHeat ? "Up Next" : `Round ${racedayLevel}`}
@@ -162,7 +176,7 @@ export default function RaceHeader({ race, remainingMs, racedayStatus, poolSize 
                   {isPolling ? "Tournament" : isRaceDayPicking ? "Choose your racehorses" : "Next heat"}
                 </p>
                 <h2 className="font-display text-5xl uppercase tracking-[0.12em] text-midnight">
-                  {isPolling ? "Preparing Races" : "RaceDay Event"}
+                  {race?.racedayName || "RaceDay Event"}
                 </h2>
               </>
             )}

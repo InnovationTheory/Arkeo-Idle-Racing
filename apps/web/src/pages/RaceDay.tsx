@@ -6,7 +6,7 @@ import RaceTicketCompact from "../components/RaceTicketCompact";
 import HorseSilhouette from "../components/HorseSilhouette";
 import JerseyIcon from "../components/JerseyIcon";
 import { useWalletState } from "../hooks/useWalletState";
-import { useRaceCountdown } from "../hooks/useRaceCountdown";
+import { useRaceHeader } from "../hooks/useRaceHeader";
 import { useRaceDayTicketHorses } from "../hooks/useRaceDayTicketHorses";
 import { contrastColor, horseStyle } from "../utils/horseStyle";
 import { buildRaceDaySlotLabel } from "../utils/racedayLabels";
@@ -149,6 +149,14 @@ export default function RaceDay() {
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
   const walletState = useWalletState();
 
+  // Shared RaceHeader data (consistent across all tabs)
+  const {
+    headerRace,
+    remainingMs,
+    poolSize,
+    racedayStatus
+  } = useRaceHeader();
+
   // Use shared hook for raceDay data, selections, ticketHorses, and horseDetails
   const targetRaceDayId = selectedRaceDayId ?? raceDayIdParam ?? undefined;
   const {
@@ -160,14 +168,16 @@ export default function RaceDay() {
     refetchSelections
   } = useRaceDayTicketHorses(walletState.walletAddress, targetRaceDayId);
 
-  // Fetch list of all racedays
+  // Fetch list of all racedays (exclude canceled)
   useEffect(() => {
     let mounted = true;
     const fetchList = async () => {
       try {
         const data = await apiGet<{ racedays: RaceDayListItem[] }>("/api/racedays/list");
         if (!mounted) return;
-        setRaceDayList(data.racedays ?? []);
+        // Filter out canceled racedays
+        const activeRacedays = (data.racedays ?? []).filter((rd) => rd.status !== "canceled");
+        setRaceDayList(activeRacedays);
       } catch {
         if (!mounted) return;
         setRaceDayList([]);
@@ -265,75 +275,6 @@ export default function RaceDay() {
     if (raceDay.status === "canceled") return "Canceled";
     return "Scheduled";
   }, [raceDay]);
-
-  // Find current active heat for header display
-  // Only show heat info when raceDay is actively running (not just scheduled)
-  const currentHeatInfo = useMemo(() => {
-    if (!raceDay?.rounds) return null;
-    // Only look for heats when raceDay is in an active state
-    const activeStates = ["polling", "picking", "running"];
-    if (!activeStates.includes(raceDay.status)) return null;
-
-    type HeatMetadata = { trackName?: string; trackSurface?: string; weatherName?: string };
-
-    // First look for running heat
-    for (const round of raceDay.rounds) {
-      const runningHeat = round.heats.find((heat) => heat.status === "running");
-      if (runningHeat) {
-        const meta = runningHeat.metadata as HeatMetadata | null;
-        return {
-          round: round.roundNumber,
-          heat: runningHeat.heatNumber,
-          totalHeats: round.heatsCount,
-          pickCloseAt: runningHeat.pickCloseAt,
-          startsAt: runningHeat.startsAt,
-          trackName: meta?.trackName ?? null,
-          trackSurface: meta?.trackSurface ?? null,
-          weatherName: meta?.weatherName ?? null
-        };
-      }
-    }
-    // Then look for picking heat
-    for (const round of raceDay.rounds) {
-      const pickingHeat = round.heats.find((heat) => heat.status === "picking");
-      if (pickingHeat) {
-        const meta = pickingHeat.metadata as HeatMetadata | null;
-        return {
-          round: round.roundNumber,
-          heat: pickingHeat.heatNumber,
-          totalHeats: round.heatsCount,
-          pickCloseAt: pickingHeat.pickCloseAt,
-          startsAt: pickingHeat.startsAt,
-          trackName: meta?.trackName ?? null,
-          trackSurface: meta?.trackSurface ?? null,
-          weatherName: meta?.weatherName ?? null
-        };
-      }
-    }
-    // Then look for scheduled heat (next up) - only when raceDay is running
-    if (raceDay.status === "running") {
-      for (const round of raceDay.rounds) {
-        const scheduledHeat = round.heats.find((heat) => heat.status === "scheduled");
-        if (scheduledHeat) {
-          const meta = scheduledHeat.metadata as HeatMetadata | null;
-          return {
-            round: round.roundNumber,
-            heat: scheduledHeat.heatNumber,
-            totalHeats: round.heatsCount,
-            pickCloseAt: scheduledHeat.pickCloseAt,
-            startsAt: scheduledHeat.startsAt,
-            trackName: meta?.trackName ?? null,
-            trackSurface: meta?.trackSurface ?? null,
-            weatherName: meta?.weatherName ?? null
-          };
-        }
-      }
-    }
-    return null;
-  }, [raceDay]);
-
-  // Countdown for pick close
-  const remainingMs = useRaceCountdown(currentHeatInfo?.pickCloseAt);
 
   const handleHorseHover = (horse: RaceDayHorse | null, event?: React.MouseEvent) => {
     if (horse && event) {
@@ -460,10 +401,10 @@ export default function RaceDay() {
     return (
       <div className="flex flex-col gap-6">
         <RaceHeader
-          race={null}
-          remainingMs={0}
-          poolSize={0}
-          racedayStatus={null}
+          race={headerRace}
+          remainingMs={remainingMs}
+          poolSize={poolSize}
+          racedayStatus={racedayStatus}
         />
         <div className="surface rounded-3xl p-6 text-center text-slate">
           No tournament available.
@@ -475,31 +416,10 @@ export default function RaceDay() {
   return (
     <div className="flex flex-col gap-6">
       <RaceHeader
-        race={currentHeatInfo ? {
-          raceId: "raceday",
-          status: raceDay.status === "picking" ? "picking" : raceDay.status === "running" ? "running" : "scheduled",
-          track: currentHeatInfo.trackName ? {
-            name: currentHeatInfo.trackName,
-            surface: currentHeatInfo.trackSurface ?? undefined
-          } : undefined,
-          weather: currentHeatInfo.weatherName ? { name: currentHeatInfo.weatherName } : undefined,
-          racedayLevel: currentHeatInfo.round,
-          racedayHeatNumber: currentHeatInfo.heat,
-          racedayHeatCount: currentHeatInfo.totalHeats,
-          racedayStatus: raceDay.status,
-          pickCloseAt: currentHeatInfo.pickCloseAt ?? undefined,
-          startAt: currentHeatInfo.startsAt ?? undefined
-        } : {
-          raceId: "raceday",
-          status: "scheduled",
-          racedayLevel: 1,
-          racedayHeatNumber: 1,
-          racedayHeatCount: 8,
-          racedayStatus: raceDay.status
-        }}
+        race={headerRace}
         remainingMs={remainingMs}
-        poolSize={raceDay.poolCredits}
-        racedayStatus={raceDay.status}
+        poolSize={poolSize}
+        racedayStatus={racedayStatus}
       />
 
       <RaceTicketCompact

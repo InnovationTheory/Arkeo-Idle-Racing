@@ -123,6 +123,7 @@ export default function Lobby() {
     raceDay,
     raceDayRacing,
     raceDaySelectionActive,
+    preflightProgress,
     displayRace,
     displayHorses
   } = useRaceHeader();
@@ -274,6 +275,7 @@ export default function Lobby() {
   const levelOne = raceDay?.rounds.find((round) => round.roundNumber === 1) ?? null;
   const levelOneHeats = levelOne?.heats ?? [];
   const activeHeat = levelOneHeats[heatIndex] ?? levelOneHeats[0] ?? null;
+  const totalHorsesRound1 = levelOneHeats.reduce((sum, heat) => sum + (heat.entrants?.length ?? 0), 0);
   const raceDayPickCloseAt = raceDay?.startAt ? new Date(raceDay.startAt).getTime() : null;
   const raceDaySelectionOpen = Boolean(
     raceDay?.status === "picking" && (!raceDayPickCloseAt || Date.now() < raceDayPickCloseAt)
@@ -649,89 +651,46 @@ export default function Lobby() {
 
       <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
         <div className="flex flex-col gap-4">
-          <div className="surface relative flex items-center justify-between rounded-3xl p-6">
-            <div className="flex-1">
-              {(() => {
-                // Consolidated data source for round/heat display
-                const currentRound = displayRace?.racedayLevel ?? activeHeat?.roundNumber ?? 1;
-                const currentHeat = raceDaySelectionActive
-                  ? heatIndex + 1
-                  : displayRace?.racedayHeatNumber ?? 1;
-                const isLoading = !raceDay && !displayRace;
-                const isPolling = raceDay?.status === "polling" || raceDay?.status === "scheduled";
-
-                // Determine subtitle based on raceDay status
-                let subtitle: string;
-                if (isLoading) {
-                  subtitle = "Loading";
-                } else if (raceDayRacing) {
-                  subtitle = "Race In Progress";
-                } else if (isPolling) {
-                  subtitle = "Preparing Races";
-                } else if (raceDaySelectionOpen) {
-                  subtitle = "Choose Your Racehorses";
-                } else if (raceDayTicketActive && raceDay?.status === "complete") {
-                  subtitle = "Tournament Complete";
-                } else if (raceDayTicketActive) {
-                  subtitle = "Selections Locked";
-                } else if (lineupReady) {
-                  subtitle = "Choose Your Racehorses";
-                } else {
-                  subtitle = "Waiting for Tournament";
-                }
-
-                // Determine title
-                let title: string;
-                if (isLoading) {
-                  title = "Loading Tournament...";
-                } else if (isPolling) {
-                  title = "Warming Up";
-                } else if (raceDayRacing) {
-                  title = "Watch on Race Tab";
-                } else if (raceDayTicketActive || lineupReady) {
-                  title = `Round ${currentRound}, Heat ${currentHeat}`;
-                } else {
-                  title = "No Active Tournament";
-                }
-
-                return (
-                  <>
-                    <p className="text-xs uppercase tracking-[0.3em] text-slate">
-                      {subtitle}
-                    </p>
-                    <h3 className="font-display text-3xl uppercase tracking-[0.1em] text-ink flex items-center gap-3">
-                      {isLoading && (
-                        <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-                      )}
-                      {title}
-                    </h3>
-                  </>
-                );
-              })()}
-              {/* Heat tabs - ONLY shown during picking phase */}
-              {levelOneHeats.length > 0 && raceDaySelectionOpen && (
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  {levelOneHeats.map((heat, index) => {
-                    const isCurrentHeat = index === heatIndex;
-                    return (
-                      <button
-                        key={heat.heatId}
-                        type="button"
-                        onClick={() => setHeatIndex(index)}
-                        className={`h-8 rounded-full px-3 text-xs font-semibold uppercase tracking-[0.2em] transition ${
-                          isCurrentHeat
-                            ? "bg-accent text-white"
-                            : "border border-midnight/10 bg-panel/80 text-midnight/80 hover:bg-midnight/10"
-                        }`}
-                      >
-                        Heat {index + 1}
-                      </button>
-                    );
-                  })}
+          {/* Status block - shown during scheduled, polling, and picking phases */}
+          {(raceDay?.status === "scheduled" || raceDay?.status === "polling" || raceDay?.status === "picking") && (
+            <div className="surface relative flex flex-col gap-4 rounded-3xl p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <p className="text-xs uppercase tracking-[0.3em] text-slate">
+                    {raceDay?.status === "picking" ? "Choose Your Racehorses" : "Preparing Races"}
+                  </p>
+                  <h3 className="font-display text-3xl uppercase tracking-[0.1em] text-ink">
+                    {raceDay?.status === "scheduled"
+                      ? "Waiting for event to start"
+                      : raceDay?.status === "polling"
+                        ? preflightProgress
+                          ? `Warming Up ${preflightProgress.completedHorses} of ${preflightProgress.totalHorses} Racehorses`
+                          : `Warming Up ${totalHorsesRound1 > 0 ? `${totalHorsesRound1} Racehorses` : ""}`
+                        : "Make Your Picks"}
+                  </h3>
+                </div>
+              </div>
+              {/* Heat selector buttons - shown during picking phase */}
+              {raceDay?.status === "picking" && levelOneHeats.length > 1 && (
+                <div className="flex flex-wrap gap-2">
+                  {levelOneHeats.map((heat, idx) => (
+                    <button
+                      key={heat.heatId}
+                      type="button"
+                      onClick={() => setHeatIndex(idx)}
+                      className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.15em] transition ${
+                        heatIndex === idx
+                          ? "bg-accent text-white"
+                          : "bg-midnight/10 text-midnight hover:bg-midnight/20"
+                      }`}
+                    >
+                      Heat {heat.heatNumber}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
-          </div>
+          )}
           {/* Horse Lineup - ONLY shown during picking phase */}
           {raceDaySelectionOpen ? (
             <>

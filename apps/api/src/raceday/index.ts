@@ -647,9 +647,33 @@ async function preflightRoundHeats(
     });
   };
 
+  // Count total horses for progress reporting
+  const totalHorses = heats.reduce((sum, heat) => {
+    const entrants = Array.isArray(heat.entrantsJson) ? (heat.entrantsJson as string[]) : [];
+    return sum + entrants.length;
+  }, 0);
+  let completedHorses = 0;
+
   for (let i = 0; i < heats.length; i += maxParallel) {
     const batch = heats.slice(i, i + maxParallel);
     await Promise.all(batch.map((heat) => preflightHeat(heat)));
+
+    // Update completed count and broadcast progress
+    for (const heat of batch) {
+      const entrants = Array.isArray(heat.entrantsJson) ? (heat.entrantsJson as string[]) : [];
+      completedHorses += entrants.length;
+    }
+    broadcastToRaceDay(raceDay.id, {
+      type: "preflight_progress",
+      data: {
+        raceDayId: raceDay.id,
+        roundNumber,
+        completedHorses,
+        totalHorses,
+        completedHeats: Math.min(i + maxParallel, heats.length),
+        totalHeats: heats.length
+      }
+    });
   }
 }
 

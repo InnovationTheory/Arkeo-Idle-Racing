@@ -114,7 +114,7 @@ export default function Admin() {
   const adminDelete = (url: string) => adminFetch(url, "DELETE");
 
   const resetRaceday = (id: string) => adminPost(`/api/racedays/${id}/reset`);
-  const completeRaceday = (id: string) => adminPost(`/api/racedays/${id}/cancel`);
+  const cancelRaceday = (id: string) => adminPost(`/api/racedays/${id}/cancel`);
   const startRaceday = (id: string) => adminPost(`/api/racedays/${id}/start`);
   const createRaceday = async () => {
     await adminPost("/api/racedays/create", {
@@ -184,20 +184,34 @@ export default function Admin() {
 
       {/* RaceDays */}
       <section className="surface rounded-2xl p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm uppercase tracking-[0.2em] text-slate">RaceDays</h2>
-          <button
-            onClick={() => setShowCreateForm(!showCreateForm)}
-            disabled={loading}
-            className={`rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 ${
-              showCreateForm
-                ? "bg-slate/20 text-slate"
-                : "bg-accent2 text-white"
-            }`}
-          >
-            {showCreateForm ? "Cancel" : "New RaceDay"}
-          </button>
-        </div>
+        {(() => {
+          // Block creation when any raceday is active (not canceled or complete)
+          const activeRaceday = racedays.find((rd) =>
+            !["canceled", "complete"].includes(rd.status)
+          );
+          const canCreate = !activeRaceday;
+          return (
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm uppercase tracking-[0.2em] text-slate">RaceDays</h2>
+              <div className="flex items-center gap-2">
+                {activeRaceday && (
+                  <span className="text-xs text-warning">Event in progress</span>
+                )}
+                <button
+                  onClick={() => setShowCreateForm(!showCreateForm)}
+                  disabled={loading || !canCreate}
+                  className={`rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 ${
+                    showCreateForm
+                      ? "bg-slate/20 text-slate"
+                      : "bg-accent2 text-white"
+                  }`}
+                >
+                  {showCreateForm ? "Cancel" : "New RaceDay"}
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Create RaceDay Form */}
         {showCreateForm && (
@@ -266,20 +280,20 @@ export default function Admin() {
             </button>
           </div>
         )}
-        {racedays.length === 0 ? (
+        {racedays.filter((rd) => rd.status !== "canceled").length === 0 ? (
           <p className="text-slate">No racedays</p>
         ) : (
-          <div className="flex flex-col gap-2">
-            {racedays.map((rd) => (
+          <div className="flex flex-col gap-3">
+            {racedays.filter((rd) => rd.status !== "canceled").map((rd) => (
               <div
                 key={rd.raceDayId}
-                className="flex items-center justify-between rounded-xl bg-panel/50 px-4 py-3"
+                className="flex items-center justify-between gap-6 rounded-xl bg-panel/50 px-5 py-4"
               >
-                <div>
+                <div className="min-w-0 flex-1">
                   <p className="font-semibold text-ink">{rd.name}</p>
-                  <p className="text-xs text-slate font-mono">{rd.raceDayId}</p>
+                  <p className="text-xs text-slate font-mono truncate">{rd.raceDayId}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3 shrink-0">
                   <span
                     className={`rounded-full px-3 py-1 text-xs font-semibold uppercase ${
                       rd.status === "running"
@@ -299,7 +313,7 @@ export default function Admin() {
                       disabled={loading}
                       className="rounded-lg bg-accent2 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
                     >
-                      Start
+                      Start Event
                     </button>
                   )}
                   {(rd.status === "running" || rd.status === "picking" || rd.status === "polling") && (
@@ -307,16 +321,16 @@ export default function Admin() {
                       <button
                         onClick={() => resetRaceday(rd.raceDayId)}
                         disabled={loading}
-                        className="rounded-lg bg-warning px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                        className="rounded-lg bg-orange-500 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
                       >
-                        Reset
+                        Reset Event
                       </button>
                       <button
-                        onClick={() => completeRaceday(rd.raceDayId)}
+                        onClick={() => cancelRaceday(rd.raceDayId)}
                         disabled={loading}
-                        className="rounded-lg bg-warning px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                        className="rounded-lg bg-orange-500 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
                       >
-                        Complete
+                        Cancel Event
                       </button>
                     </>
                   )}

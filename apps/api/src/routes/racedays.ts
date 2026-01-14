@@ -23,6 +23,7 @@ import {
 import { prisma } from "../db";
 import { RaceDayHeatStatus, RaceDayStatus, RaceStatus } from "@prisma/client";
 import { requireSessionUser } from "./utils/session";
+import { requireAdminKey } from "./utils/adminAuth";
 
 const router = Router();
 const lockedHeatStatuses = new Set<RaceDayHeatStatus>([
@@ -76,6 +77,7 @@ router.get(
 
 router.post(
   "/create",
+  requireAdminKey,
   validate(createRaceDaySchema),
   asyncHandler(async (req, res) => {
     const raceDayId = await createRaceDay(req.body ?? {});
@@ -85,6 +87,7 @@ router.post(
 
 router.post(
   "/:id/start",
+  requireAdminKey,
   validate(startRaceDaySchema),
   asyncHandler(async (req, res) => {
     await startRaceDay(req.params.id);
@@ -94,6 +97,7 @@ router.post(
 
 router.post(
   "/:id/reset",
+  requireAdminKey,
   validate(startRaceDaySchema),
   asyncHandler(async (req, res) => {
     const { pickWindowSecs } = req.body as { pickWindowSecs?: number };
@@ -104,6 +108,7 @@ router.post(
 
 router.post(
   "/:id/cancel",
+  requireAdminKey,
   validate(startRaceDaySchema),
   asyncHandler(async (req, res) => {
     const raceDay = await prisma.raceDay.findUnique({ where: { id: req.params.id } });

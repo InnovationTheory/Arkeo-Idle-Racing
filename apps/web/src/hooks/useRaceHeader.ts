@@ -61,6 +61,7 @@ export type HeaderRace = {
   racedayHeatNumber: number;
   racedayHeatCount: number;
   racedayStatus: string;
+  racedayName?: string | null;
   pickCloseAt?: string | null;
   startAt?: string | null;
 };
@@ -68,17 +69,25 @@ export type HeaderRace = {
 // RaceDay statuses that indicate an active event
 const ACTIVE_RACEDAY_STATUSES = ["scheduled", "polling", "picking", "running"];
 
+export type PreflightProgress = {
+  completedHorses: number;
+  totalHorses: number;
+  completedHeats: number;
+  totalHeats: number;
+};
+
 /**
  * Shared hook for RaceHeader data across all tabs.
  * Provides consistent raceDay state, currentHeatInfo, and headerRace object.
  */
 export function useRaceHeader() {
   const [raceDay, setRaceDay] = useState<RaceDayState | null>(null);
+  const [preflightProgress, setPreflightProgress] = useState<PreflightProgress | null>(null);
 
   // Get current race data for track/weather info and horse list
   const { displayRace, race, displayHorses, updateRace, storeWsPositions, mergeHorsePositions } = useCurrentRace();
 
-  // Fetch raceDay data on mount and poll
+  // Fetch raceDay data on mount and poll (only active racedays)
   useEffect(() => {
     let mounted = true;
     let interval: number | null = null;
@@ -87,7 +96,13 @@ export function useRaceHeader() {
       try {
         const data = await apiGet<{ latest: RaceDayState | null }>("/api/racedays");
         if (!mounted) return;
-        setRaceDay(data.latest ?? null);
+        // Only store active racedays - ignore completed/canceled
+        const latest = data.latest;
+        if (latest && ACTIVE_RACEDAY_STATUSES.includes(latest.status)) {
+          setRaceDay(latest);
+        } else {
+          setRaceDay(null);
+        }
       } catch {
         if (!mounted) return;
         setRaceDay(null);
@@ -109,7 +124,26 @@ export function useRaceHeader() {
 
     const connection = connectRaceDayWs(raceDay.raceDayId, (message) => {
       if (message.type === "raceday_state") {
-        setRaceDay(message.data as RaceDayState);
+        const updated = message.data as RaceDayState;
+        // Clear raceDay if it's no longer active
+        if (ACTIVE_RACEDAY_STATUSES.includes(updated.status)) {
+          setRaceDay(updated);
+          // Clear preflight progress when polling ends
+          if (updated.status !== "polling") {
+            setPreflightProgress(null);
+          }
+        } else {
+          setRaceDay(null);
+          setPreflightProgress(null);
+        }
+      } else if (message.type === "preflight_progress") {
+        const progress = message.data as PreflightProgress & { raceDayId: string };
+        setPreflightProgress({
+          completedHorses: progress.completedHorses,
+          totalHorses: progress.totalHorses,
+          completedHeats: progress.completedHeats,
+          totalHeats: progress.totalHeats
+        });
       }
     });
 
@@ -177,36 +211,24 @@ export function useRaceHeader() {
     return null;
   }, [raceDay]);
 
-  // Build race object for header - prefer raceDay data when available
+  // Build race object for header - only show data when there's an active raceDay
   const headerRace = useMemo((): HeaderRace | null => {
-    if (!currentHeatInfo || !raceDay) {
-      // Fall back to displayRace if no raceDay active
-      if (displayRace) {
-        return {
-          raceId: displayRace.raceId,
-          status: displayRace.status,
-          track: displayRace.track,
-          weather: displayRace.weather,
-          racedayLevel: displayRace.racedayLevel ?? 1,
-          racedayHeatNumber: displayRace.racedayHeatNumber ?? 1,
-          racedayHeatCount: displayRace.racedayHeatCount ?? 1,
-          racedayStatus: raceDay?.status ?? displayRace.status,
-          pickCloseAt: displayRace.pickCloseAt,
-          startAt: displayRace.startAt
-        };
-      }
-      // If raceDay exists and is active (not complete/canceled), return fallback
-      if (raceDay && ACTIVE_RACEDAY_STATUSES.includes(raceDay.status)) {
-        return {
-          raceId: "raceday",
-          status: "scheduled",
-          racedayLevel: 1,
-          racedayHeatNumber: 1,
-          racedayHeatCount: 8,
-          racedayStatus: raceDay.status
-        };
-      }
+    // No active raceDay means no header data
+    if (!raceDay) {
       return null;
+    }
+
+    // RaceDay exists but no current heat info yet (e.g., polling/scheduled phase)
+    if (!currentHeatInfo) {
+      return {
+        raceId: "raceday",
+        status: "scheduled",
+        racedayLevel: 1,
+        racedayHeatNumber: 1,
+        racedayHeatCount: 8,
+        racedayStatus: raceDay.status,
+        racedayName: raceDay.name
+      };
     }
 
     // Use track from displayRace if available, otherwise from heat metadata
@@ -229,6 +251,7 @@ export function useRaceHeader() {
       racedayHeatNumber: displayRace?.racedayHeatNumber ?? currentHeatInfo.heat,
       racedayHeatCount: displayRace?.racedayHeatCount ?? currentHeatInfo.totalHeats,
       racedayStatus: raceDay.status,
+      racedayName: raceDay.name,
       pickCloseAt: displayRace?.pickCloseAt ?? currentHeatInfo.pickCloseAt,
       startAt: displayRace?.startAt ?? currentHeatInfo.startsAt
     };
@@ -262,6 +285,9 @@ export function useRaceHeader() {
     // RaceDay state
     raceDay,
     currentHeatInfo,
+
+    // Preflight progress (during polling phase)
+    preflightProgress,
 
     // Computed flags
     raceDayRacing,
