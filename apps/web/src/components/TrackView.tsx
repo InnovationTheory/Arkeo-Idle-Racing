@@ -94,7 +94,12 @@ const formatOrdinal = (value: number) => {
   }
 };
 
-export default function TrackView({ horses, raceStatus, racedayLevel, event }: TrackViewProps) {
+export default function TrackView({
+  horses,
+  raceStatus,
+  racedayLevel,
+  event
+}: TrackViewProps) {
   const height =
     TRACK_TOP +
     Math.max(1, horses.length) * LANE_HEIGHT +
@@ -125,11 +130,7 @@ export default function TrackView({ horses, raceStatus, racedayLevel, event }: T
   return (
     <div ref={containerRef} className="surface relative rounded-3xl p-5 select-none">
       <div className="h-14 mb-2 flex items-center justify-center">
-        {event ? (
-          <RaceEventBanner event={event} />
-        ) : (
-          <div className="h-full" />
-        )}
+        {event ? <RaceEventBanner event={event} /> : <div className="h-full" />}
       </div>
       <svg viewBox={`0 0 ${TRACK_WIDTH} ${height}`} className="w-full select-none" role="img">
         <rect

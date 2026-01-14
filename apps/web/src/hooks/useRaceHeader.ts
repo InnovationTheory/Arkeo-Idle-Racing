@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "../api";
 import { connectRaceDayWs } from "../ws";
 import { useRaceCountdown } from "./useRaceCountdown";
-import { useCurrentRace } from "../queries";
+import { useCurrentRace, type Race } from "../queries";
 
 type HeatMetadata = {
   trackId?: string;
@@ -48,8 +48,11 @@ export type CurrentHeatInfo = {
   totalHeats: number;
   pickCloseAt: string | null;
   startsAt: string | null;
+  raceId: string | null;
   trackName?: string | null;
   trackSurface?: string | null;
+  // When showing a finished heat during buffer, this holds the next heat's startsAt for timing
+  nextHeatStartsAt?: string | null;
 };
 
 export type HeaderRace = {
@@ -83,6 +86,7 @@ export type PreflightProgress = {
 export function useRaceHeader() {
   const [raceDay, setRaceDay] = useState<RaceDayState | null>(null);
   const [preflightProgress, setPreflightProgress] = useState<PreflightProgress | null>(null);
+  const [nextHeatRace, setNextHeatRace] = useState<Race | null>(null);
 
   // Get current race data for track/weather info and horse list
   const { displayRace, race, displayHorses, updateRace, storeWsPositions, mergeHorsePositions } = useCurrentRace();
@@ -144,11 +148,23 @@ export function useRaceHeader() {
           completedHeats: progress.completedHeats,
           totalHeats: progress.totalHeats
         });
+      } else if (message.type === "next_race_state") {
+        const nextRace = message.data as Race;
+        if (nextRace?.raceId) {
+          setNextHeatRace(nextRace);
+        }
       }
     });
 
     return () => connection.close();
   }, [raceDay?.raceDayId]);
+
+  // Clear next heat snapshot once the race begins
+  useEffect(() => {
+    if (displayRace?.raceId && nextHeatRace?.raceId && displayRace.raceId === nextHeatRace.raceId) {
+      setNextHeatRace(null);
+    }
+  }, [displayRace?.raceId, nextHeatRace?.raceId]);
 
   // Find current active heat for header display
   const currentHeatInfo = useMemo((): CurrentHeatInfo | null => {
@@ -158,54 +174,88 @@ export function useRaceHeader() {
     const activeStates = ["polling", "picking", "running"];
     if (!activeStates.includes(raceDay.status)) return null;
 
-    // First look for running heat
-    for (const round of raceDay.rounds) {
-      const runningHeat = round.heats.find((heat) => heat.status === "running");
-      if (runningHeat) {
-        return {
-          round: round.roundNumber,
-          heat: runningHeat.heatNumber,
-          totalHeats: round.heatsCount,
-          pickCloseAt: runningHeat.pickCloseAt,
-          startsAt: runningHeat.startsAt,
-          trackName: runningHeat.metadata?.trackName ?? null,
-          trackSurface: runningHeat.metadata?.trackSurface ?? null
-        };
-      }
-    }
-
-    // Then look for picking heat
-    for (const round of raceDay.rounds) {
-      const pickingHeat = round.heats.find((heat) => heat.status === "picking");
-      if (pickingHeat) {
-        return {
-          round: round.roundNumber,
-          heat: pickingHeat.heatNumber,
-          totalHeats: round.heatsCount,
-          pickCloseAt: pickingHeat.pickCloseAt,
-          startsAt: pickingHeat.startsAt,
-          trackName: pickingHeat.metadata?.trackName ?? null,
-          trackSurface: pickingHeat.metadata?.trackSurface ?? null
-        };
-      }
-    }
-
-    // Then look for scheduled heat (next up) - during picking or running phases
-    if (raceDay.status === "running" || raceDay.status === "picking") {
+    // Helper to find heat with lowest heatNumber matching a status
+    const findLowestHeat = (status: string): { round: typeof raceDay.rounds[0]; heat: RaceDayHeat } | null => {
+      let best: { round: typeof raceDay.rounds[0]; heat: RaceDayHeat } | null = null;
       for (const round of raceDay.rounds) {
-        const scheduledHeat = round.heats.find((heat) => heat.status === "scheduled");
-        if (scheduledHeat) {
-          return {
-            round: round.roundNumber,
-            heat: scheduledHeat.heatNumber,
-            totalHeats: round.heatsCount,
-            pickCloseAt: scheduledHeat.pickCloseAt,
-            startsAt: scheduledHeat.startsAt,
-            trackName: scheduledHeat.metadata?.trackName ?? null,
-            trackSurface: scheduledHeat.metadata?.trackSurface ?? null
-          };
+        for (const heat of round.heats) {
+          if (heat.status === status) {
+            if (!best || round.roundNumber < best.round.roundNumber ||
+                (round.roundNumber === best.round.roundNumber && heat.heatNumber < best.heat.heatNumber)) {
+              best = { round, heat };
+            }
+          }
         }
       }
+      return best;
+    };
+
+    // Helper to find most recently finished heat (highest round/heat number among finished)
+    const findMostRecentFinished = (): { round: typeof raceDay.rounds[0]; heat: RaceDayHeat } | null => {
+      let best: { round: typeof raceDay.rounds[0]; heat: RaceDayHeat } | null = null;
+      for (const round of raceDay.rounds) {
+        for (const heat of round.heats) {
+          if (heat.status === "finished") {
+            if (!best || round.roundNumber > best.round.roundNumber ||
+                (round.roundNumber === best.round.roundNumber && heat.heatNumber > best.heat.heatNumber)) {
+              best = { round, heat };
+            }
+          }
+        }
+      }
+      return best;
+    };
+
+    const buildHeatInfo = (
+      round: typeof raceDay.rounds[0],
+      heat: RaceDayHeat,
+      nextHeatStartsAt?: string | null
+    ): CurrentHeatInfo => ({
+      round: round.roundNumber,
+      heat: heat.heatNumber,
+      totalHeats: round.heatsCount,
+      pickCloseAt: heat.pickCloseAt,
+      startsAt: heat.startsAt,
+      raceId: heat.raceId,
+      trackName: heat.metadata?.trackName ?? null,
+      trackSurface: heat.metadata?.trackSurface ?? null,
+      nextHeatStartsAt
+    });
+
+    // First look for running heat (lowest round/heat number)
+    const running = findLowestHeat("running");
+    if (running) return buildHeatInfo(running.round, running.heat);
+
+    // Then look for picking heat
+    const picking = findLowestHeat("picking");
+    if (picking) return buildHeatInfo(picking.round, picking.heat);
+
+    // During running phase, check if we're in first half of buffer (show finished heat)
+    if (raceDay.status === "running") {
+      const scheduled = findLowestHeat("scheduled");
+      const finished = findMostRecentFinished();
+
+      if (scheduled && finished && scheduled.heat.startsAt) {
+        const now = Date.now();
+        const nextStartsAt = new Date(scheduled.heat.startsAt).getTime();
+        const secondsUntilStart = Math.max(0, Math.floor((nextStartsAt - now) / 1000));
+        const bufferMidpoint = Math.floor((raceDay.bufferSecs ?? 30) / 2);
+
+        // If we're in first half of buffer (more than midpoint seconds until next race), show finished heat
+        // but include nextHeatStartsAt so buffer timing still works
+        if (secondsUntilStart > bufferMidpoint) {
+          return buildHeatInfo(finished.round, finished.heat, scheduled.heat.startsAt);
+        }
+      }
+
+      // Otherwise show the scheduled heat (second half of buffer or no finished heat)
+      if (scheduled) return buildHeatInfo(scheduled.round, scheduled.heat);
+    }
+
+    // For picking phase, just show scheduled heat
+    if (raceDay.status === "picking") {
+      const scheduled = findLowestHeat("scheduled");
+      if (scheduled) return buildHeatInfo(scheduled.round, scheduled.heat);
     }
 
     return null;
@@ -237,8 +287,11 @@ export function useRaceHeader() {
       surface: currentHeatInfo.trackSurface ?? "dirt"
     } : null);
 
-    // Prefer displayRace values for heat info since that's the actual race being displayed
-    // This ensures consistency when running parallel heats
+    // During buffer (scheduled race in running raceDay), prioritize currentHeatInfo
+    // which comes from raceDay state and is more accurate than displayRace
+    const isBufferPeriod = displayRace?.status === "scheduled" && raceDay.status === "running";
+    const useHeatInfoPriority = isBufferPeriod || !displayRace?.racedayHeatNumber;
+
     return {
       raceId: displayRace?.raceId ?? "raceday",
       // Use actual race status when raceDay is running (allows "finished" during buffer)
@@ -247,13 +300,13 @@ export function useRaceHeader() {
         : displayRace?.status ?? "scheduled",
       track,
       weather: displayRace?.weather, // Weather only available after race is created
-      racedayLevel: displayRace?.racedayLevel ?? currentHeatInfo.round,
-      racedayHeatNumber: displayRace?.racedayHeatNumber ?? currentHeatInfo.heat,
-      racedayHeatCount: displayRace?.racedayHeatCount ?? currentHeatInfo.totalHeats,
+      racedayLevel: useHeatInfoPriority ? currentHeatInfo.round : (displayRace?.racedayLevel ?? currentHeatInfo.round),
+      racedayHeatNumber: useHeatInfoPriority ? currentHeatInfo.heat : (displayRace?.racedayHeatNumber ?? currentHeatInfo.heat),
+      racedayHeatCount: useHeatInfoPriority ? currentHeatInfo.totalHeats : (displayRace?.racedayHeatCount ?? currentHeatInfo.totalHeats),
       racedayStatus: raceDay.status,
       racedayName: raceDay.name,
-      pickCloseAt: displayRace?.pickCloseAt ?? currentHeatInfo.pickCloseAt,
-      startAt: displayRace?.startAt ?? currentHeatInfo.startsAt
+      pickCloseAt: useHeatInfoPriority ? currentHeatInfo.pickCloseAt : (displayRace?.pickCloseAt ?? currentHeatInfo.pickCloseAt),
+      startAt: useHeatInfoPriority ? currentHeatInfo.startsAt : (displayRace?.startAt ?? currentHeatInfo.startsAt)
     };
   }, [currentHeatInfo, raceDay, displayRace]);
 
@@ -288,6 +341,9 @@ export function useRaceHeader() {
 
     // Preflight progress (during polling phase)
     preflightProgress,
+
+    // Next heat snapshot (for buffer display)
+    nextHeatRace,
 
     // Computed flags
     raceDayRacing,

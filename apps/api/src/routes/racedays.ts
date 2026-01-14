@@ -18,8 +18,11 @@ import {
   getRaceDaySelectionSchema,
   setRaceDaySelectionSchema,
   getRaceDayLeaderboardSchema,
-  getRaceDayPayoutsSchema
+  getRaceDayPayoutsSchema,
+  processRaceDayPayoutsSchema
 } from "./schemas/racedays";
+import { sendArkeoReward } from "../arkeo/send";
+import { config } from "../config";
 import { prisma } from "../db";
 import { RaceDayHeatStatus, RaceDayStatus, RaceStatus } from "@prisma/client";
 import { requireSessionUser } from "./utils/session";
@@ -139,12 +142,12 @@ router.post(
       data: { status: RaceDayHeatStatus.voided }
     });
 
-    // Mark raceday as complete
+    // Mark raceday as canceled
     await prisma.raceDay.update({
       where: { id: req.params.id },
-      data: { status: RaceDayStatus.complete }
+      data: { status: RaceDayStatus.canceled }
     });
-    res.json({ completed: true, message: "raceday_completed" });
+    res.json({ canceled: true, message: "raceday_canceled" });
   })
 );
 
@@ -321,6 +324,14 @@ router.get(
               }
             }
           }
+        },
+        payouts: {
+          select: {
+            userId: true,
+            paidAt: true,
+            txHash: true,
+            errorMessage: true
+          }
         }
       }
     });
@@ -480,6 +491,22 @@ router.get(
       userData.estimatedReward += selectionReward;
     }
 
+    // Build payment status map from payouts
+    const paymentStatusMap = new Map<string, { paidAt: Date | null; txHash: string | null; errorMessage: string | null }>();
+    for (const payout of raceDay.payouts) {
+      const existing = paymentStatusMap.get(payout.userId);
+      if (!existing) {
+        paymentStatusMap.set(payout.userId, {
+          paidAt: payout.paidAt,
+          txHash: payout.txHash,
+          errorMessage: payout.errorMessage
+        });
+      } else if (payout.paidAt && !existing.paidAt) {
+        existing.paidAt = payout.paidAt;
+        existing.txHash = payout.txHash;
+      }
+    }
+
     // Sort users by estimated reward descending, then by top placement
     const players = Array.from(userMap.values())
       .map((player) => {
@@ -490,10 +517,24 @@ router.get(
             .map((s) => s.finalPlacement!),
           999
         );
+
+        // Get payment status for this user
+        const paymentInfo = paymentStatusMap.get(player.userId);
+        const paymentStatus = paymentInfo?.paidAt
+          ? "paid"
+          : paymentInfo?.errorMessage
+            ? "failed"
+            : player.walletAddress
+              ? "pending"
+              : "no_wallet";
+
         return {
           ...player,
           advancingCount,
-          topPlacement
+          topPlacement,
+          paymentStatus,
+          paidAt: paymentInfo?.paidAt ?? null,
+          txHash: paymentInfo?.txHash ?? null
         };
       })
       .sort((a, b) => {
@@ -599,6 +640,9 @@ router.get(
         nickname: string | null;
         walletAddress: string | null;
         totalReward: number;
+        paidAt: Date | null;
+        txHash: string | null;
+        errorMessage: string | null;
         horses: Array<{
           raceDayHorseId: string;
           displayName: string;
@@ -615,11 +659,22 @@ router.get(
           nickname: payout.user.nickname,
           walletAddress: payout.user.walletAddress,
           totalReward: 0,
+          paidAt: payout.paidAt,
+          txHash: payout.txHash,
+          errorMessage: payout.errorMessage,
           horses: []
         });
       }
       const entry = userPayouts.get(payout.userId)!;
       entry.totalReward += payout.totalReward;
+      // Use the first payout's payment info for the user
+      if (payout.paidAt && !entry.paidAt) {
+        entry.paidAt = payout.paidAt;
+        entry.txHash = payout.txHash;
+      }
+      if (payout.errorMessage && !entry.errorMessage) {
+        entry.errorMessage = payout.errorMessage;
+      }
       entry.horses.push({
         raceDayHorseId: payout.raceDayHorseId,
         displayName: payout.horseDisplayName,
@@ -628,14 +683,24 @@ router.get(
       });
     }
 
+    // Compute payment status for each user
+    const playersWithStatus = Array.from(userPayouts.values()).map(player => ({
+      ...player,
+      paymentStatus: player.paidAt
+        ? "paid"
+        : player.errorMessage
+          ? "failed"
+          : player.walletAddress
+            ? "pending"
+            : "no_wallet"
+    })).sort((a, b) => b.totalReward - a.totalReward);
+
     res.json({
       raceDayId: raceDay.id,
       name: raceDay.name,
       status: raceDay.status,
       poolCredits: raceDay.poolCredits,
-      players: Array.from(userPayouts.values()).sort(
-        (a, b) => b.totalReward - a.totalReward
-      )
+      players: playersWithStatus
     });
   })
 );
@@ -763,6 +828,196 @@ router.get(
     }));
 
     res.json({ providers });
+  })
+);
+
+// POST /racedays/:id/process-payouts - Process and send ARKEO rewards
+router.post(
+  "/:id/process-payouts",
+  requireAdminKey,
+  validate(processRaceDayPayoutsSchema),
+  asyncHandler(async (req, res) => {
+    const raceDayId = req.params.id;
+
+    // Fetch raceday with payouts
+    const raceDay = await prisma.raceDay.findUnique({
+      where: { id: raceDayId },
+      include: {
+        payouts: {
+          include: {
+            user: {
+              select: { id: true, walletAddress: true, nickname: true }
+            }
+          }
+        }
+      }
+    });
+
+    if (!raceDay) {
+      res.status(404).json({ error: "raceday_not_found" });
+      return;
+    }
+
+    // Only allow processing payouts for completed racedays
+    if (raceDay.status !== RaceDayStatus.complete) {
+      res.status(400).json({ error: "raceday_not_complete", status: raceDay.status });
+      return;
+    }
+
+    // Check if hot wallet is configured
+    if (!config.hotWalletEnabled) {
+      res.status(400).json({ error: "hot_wallet_not_configured" });
+      return;
+    }
+
+    // Group payouts by user and calculate total per user
+    const userPayoutMap = new Map<string, {
+      userId: string;
+      walletAddress: string | null;
+      nickname: string | null;
+      totalReward: number;
+      payoutIds: string[];
+    }>();
+
+    for (const payout of raceDay.payouts) {
+      const existing = userPayoutMap.get(payout.userId);
+      if (existing) {
+        existing.totalReward += payout.totalReward;
+        existing.payoutIds.push(payout.id);
+      } else {
+        userPayoutMap.set(payout.userId, {
+          userId: payout.userId,
+          walletAddress: payout.user.walletAddress,
+          nickname: payout.user.nickname,
+          totalReward: payout.totalReward,
+          payoutIds: [payout.id]
+        });
+      }
+    }
+
+    // Calculate total rewards to verify against pool
+    const totalRewardsToSend = Array.from(userPayoutMap.values()).reduce(
+      (sum, user) => sum + user.totalReward,
+      0
+    );
+
+    // Safety check: total rewards should not exceed pool
+    if (totalRewardsToSend > raceDay.poolCredits) {
+      res.status(400).json({
+        error: "rewards_exceed_pool",
+        totalRewards: totalRewardsToSend,
+        poolCredits: raceDay.poolCredits
+      });
+      return;
+    }
+
+    // Process payouts for each user
+    const results: Array<{
+      userId: string;
+      nickname: string | null;
+      walletAddress: string | null;
+      totalReward: number;
+      status: "paid" | "pending" | "failed" | "no_wallet";
+      txHash?: string;
+      error?: string;
+    }> = [];
+
+    const arkeoMultiplier = BigInt(10 ** config.arkeoDecimals);
+
+    for (const userPayout of userPayoutMap.values()) {
+      // Skip if user has no wallet address
+      if (!userPayout.walletAddress) {
+        results.push({
+          userId: userPayout.userId,
+          nickname: userPayout.nickname,
+          walletAddress: null,
+          totalReward: userPayout.totalReward,
+          status: "no_wallet"
+        });
+        continue;
+      }
+
+      // Check if any payouts for this user are already paid
+      const existingPaidPayout = raceDay.payouts.find(
+        p => p.userId === userPayout.userId && p.paidAt !== null
+      );
+      if (existingPaidPayout) {
+        results.push({
+          userId: userPayout.userId,
+          nickname: userPayout.nickname,
+          walletAddress: userPayout.walletAddress,
+          totalReward: userPayout.totalReward,
+          status: "paid",
+          txHash: existingPaidPayout.txHash ?? undefined
+        });
+        continue;
+      }
+
+      // Convert ARKEO to uarkeo (multiply by 10^8)
+      const amountUarkeo = BigInt(Math.floor(userPayout.totalReward * Number(arkeoMultiplier)));
+
+      // Send ARKEO reward
+      const sendResult = await sendArkeoReward({
+        toAddress: userPayout.walletAddress,
+        amountUarkeo,
+        memo: `Arkeo Racing: ${raceDay.name}`
+      });
+
+      if (sendResult.ok) {
+        // Update all payout records for this user
+        await prisma.raceDayPayout.updateMany({
+          where: { id: { in: userPayout.payoutIds } },
+          data: {
+            paidAt: new Date(),
+            txHash: sendResult.txHash
+          }
+        });
+
+        results.push({
+          userId: userPayout.userId,
+          nickname: userPayout.nickname,
+          walletAddress: userPayout.walletAddress,
+          totalReward: userPayout.totalReward,
+          status: "paid",
+          txHash: sendResult.txHash
+        });
+      } else {
+        // Record the error
+        await prisma.raceDayPayout.updateMany({
+          where: { id: { in: userPayout.payoutIds } },
+          data: {
+            errorMessage: sendResult.error
+          }
+        });
+
+        results.push({
+          userId: userPayout.userId,
+          nickname: userPayout.nickname,
+          walletAddress: userPayout.walletAddress,
+          totalReward: userPayout.totalReward,
+          status: "failed",
+          error: sendResult.error
+        });
+      }
+    }
+
+    const paidCount = results.filter(r => r.status === "paid").length;
+    const failedCount = results.filter(r => r.status === "failed").length;
+    const noWalletCount = results.filter(r => r.status === "no_wallet").length;
+
+    res.json({
+      raceDayId,
+      name: raceDay.name,
+      poolCredits: raceDay.poolCredits,
+      totalRewardsToSend,
+      summary: {
+        total: results.length,
+        paid: paidCount,
+        failed: failedCount,
+        noWallet: noWalletCount
+      },
+      results
+    });
   })
 );
 

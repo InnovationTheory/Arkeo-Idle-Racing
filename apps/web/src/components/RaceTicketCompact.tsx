@@ -57,16 +57,16 @@ export default function RaceTicketCompact({
         Race Ticket
       </div>
 
-      <div className="relative z-10 flex flex-wrap items-center justify-between gap-4 pl-6">
-        <div className="min-w-[220px]">
+      <div className="relative z-10 flex flex-col gap-3 pl-6 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-4">
+        <div className="min-w-0 md:min-w-[220px]">
           <p className="text-[10px] uppercase tracking-[0.3em] text-slate">Race Ticket</p>
           <div className="flex flex-wrap items-center gap-2">
             {!walletAddress ? (
-              <h3 className="font-display text-2xl uppercase tracking-[0.1em] text-ink">
+              <h3 className="font-display text-xl md:text-2xl uppercase tracking-[0.1em] text-ink">
                 Connect a Wallet
               </h3>
             ) : (
-              <h3 className="font-display text-2xl uppercase tracking-[0.1em] text-ink">
+              <h3 className="font-display text-xl md:text-2xl uppercase tracking-[0.1em] text-ink">
                 {nickname || "Add Nickname"}
               </h3>
             )}
@@ -83,7 +83,7 @@ export default function RaceTicketCompact({
           )}
         </div>
 
-        <div className="flex flex-1 items-stretch gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:flex md:flex-1 md:items-stretch">
           {selections.length ? (
             selections.map((horse) => {
               const serviceLabel = horse.serviceType?.displayName ?? "RaceDay";
@@ -106,9 +106,9 @@ export default function RaceTicketCompact({
                   key={horse.raceHorseId}
                   className={`relative flex flex-1 items-center gap-2 rounded-2xl bg-panel/80 px-3 py-3 ${borderClass}`}
                 >
-                  <div className={`flex flex-1 items-center gap-2 ${isEliminated ? "grayscale" : ""}`}>
+                  <div className="flex flex-1 items-center gap-2">
                     <div className="flex flex-col items-center">
-                      <div className="relative flex h-14 w-14 shrink-0 items-center justify-center" style={{ marginTop: -4 }}>
+                      <div className={`relative flex h-14 w-14 shrink-0 items-center justify-center ${isEliminated ? "grayscale" : ""}`} style={{ marginTop: -4 }}>
                         <HorseSilhouette
                           width={42}
                           height={42}
@@ -169,14 +169,14 @@ export default function RaceTicketCompact({
                             </div>
                           )}
                           {horse.slotLabel && (
-                            <span className="text-[8px] font-semibold uppercase tracking-wide text-slate whitespace-nowrap" style={{ marginTop: 1 }}>
+                            <span className={`text-[8px] font-semibold uppercase tracking-wide whitespace-nowrap ${isEliminated ? "text-slate/50" : "text-slate"}`} style={{ marginTop: 1 }}>
                               {horse.slotLabel.replace(/\n/g, " ")}
                             </span>
                           )}
                         </div>
                       )}
                     </div>
-                    <div className="min-w-0 flex-1">
+                    <div className={`min-w-0 flex-1 ${isEliminated ? "grayscale" : ""}`}>
                       <p className="text-sm font-semibold leading-tight text-ink">
                         {horse.displayName}
                         {horse.odds && (

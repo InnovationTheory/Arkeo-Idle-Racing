@@ -116,6 +116,9 @@ type LeaderboardPlayer = {
   advancingCount: number;
   topPlacement: number;
   estimatedReward: number;
+  paymentStatus?: "paid" | "pending" | "failed" | "no_wallet";
+  paidAt?: string | null;
+  txHash?: string | null;
 };
 
 type ServiceStats = {
@@ -629,13 +632,34 @@ export default function RaceDay() {
                       {player.nickname || player.walletAddress?.slice(0, 8) || "Anonymous"}
                     </p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-lg font-bold text-accent2">
-                      {(player.estimatedReward ?? 0).toFixed(2)} ARKEO
-                    </p>
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-slate">
-                      Total Score
-                    </p>
+                  <div className="flex items-center gap-3">
+                    {player.paymentStatus && (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.15em] ${
+                          player.paymentStatus === "paid"
+                            ? "bg-accent2/20 text-accent2"
+                            : player.paymentStatus === "failed"
+                              ? "bg-warning/20 text-warning"
+                              : "bg-slate/20 text-slate"
+                        }`}
+                      >
+                        {player.paymentStatus === "paid"
+                          ? "Paid"
+                          : player.paymentStatus === "failed"
+                            ? "Failed"
+                            : player.paymentStatus === "no_wallet"
+                              ? "No Wallet"
+                              : "Pending"}
+                      </span>
+                    )}
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-accent2">
+                        {(player.estimatedReward ?? 0).toFixed(2)} ARKEO
+                      </p>
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-slate">
+                        Total Score
+                      </p>
+                    </div>
                   </div>
                 </div>
                 <div className="px-4 py-2 flex flex-col gap-2">

@@ -27,9 +27,14 @@ export async function getRaceWithRelations(raceId: string) {
 
 export async function getCurrentOrNextRace() {
   // First try to find a running race (highest priority)
+  // Order by round/heat to get the correct one when multiple exist
   const running = await prisma.race.findFirst({
     where: { status: "running" },
-    orderBy: { startAt: "desc" },
+    orderBy: [
+      { raceDayHeat: { roundNumber: "asc" } },
+      { raceDayHeat: { heatNumber: "asc" } },
+      { startAt: "desc" }
+    ],
     include: {
       track: true,
       weather: true,
@@ -52,10 +57,14 @@ export async function getCurrentOrNextRace() {
   });
   if (running) return running;
 
-  // Then picking, then scheduled
+  // Then picking, then scheduled - order by round/heat to get correct sequence
   return prisma.race.findFirst({
     where: { status: { in: ["picking", "scheduled"] } },
-    orderBy: { startAt: "asc" },
+    orderBy: [
+      { raceDayHeat: { roundNumber: "asc" } },
+      { raceDayHeat: { heatNumber: "asc" } },
+      { startAt: "asc" }
+    ],
     include: {
       track: true,
       weather: true,

@@ -34,27 +34,36 @@ router.get(
 
     let race = config.autoRaceEnabled
       ? await getCurrentOrNextRace()
-      : // First try running races (highest priority)
+      : // First try running races (highest priority) - order by round/heat to get correct one
         await prisma.race.findFirst({
           where: { status: "running", raceDayHeat: { isNot: null } },
-          orderBy: { startAt: "desc" },
+          orderBy: [
+            { raceDayHeat: { roundNumber: "asc" } },
+            { raceDayHeat: { heatNumber: "asc" } }
+          ],
           include
         });
 
-    // Then try picking races
+    // Then try picking races - order by round/heat
     if (!race && !config.autoRaceEnabled) {
       race = await prisma.race.findFirst({
         where: { status: "picking", raceDayHeat: { isNot: null } },
-        orderBy: { startAt: "asc" },
+        orderBy: [
+          { raceDayHeat: { roundNumber: "asc" } },
+          { raceDayHeat: { heatNumber: "asc" } }
+        ],
         include
       });
     }
 
-    // Finally try scheduled races
+    // Finally try scheduled races - order by round/heat to get Heat 2 before Heat 3
     if (!race && !config.autoRaceEnabled) {
       race = await prisma.race.findFirst({
         where: { status: "scheduled", raceDayHeat: { isNot: null } },
-        orderBy: { startAt: "asc" },
+        orderBy: [
+          { raceDayHeat: { roundNumber: "asc" } },
+          { raceDayHeat: { heatNumber: "asc" } }
+        ],
         include
       });
     }

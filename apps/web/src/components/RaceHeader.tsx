@@ -5,7 +5,7 @@ import { formatDuration } from "./Countdown";
 type HeaderRace = {
   raceId: string | null;
   status?: string;
-  track?: { name?: string; surface?: string };
+  track?: { name?: string; surface?: string; durationSecs?: number };
   weather?: { name?: string };
   pickCloseAt?: string;
   startAt?: string;
@@ -21,6 +21,14 @@ const surfaceLabels: Record<string, string> = {
   turf: "Turf",
   synthetic: "Synthetic"
 };
+
+function getTrackSizeLabel(durationSecs: number | undefined): string | null {
+  if (!durationSecs) return null;
+  const minutes = durationSecs / 60;
+  if (minutes < 3) return "Sprint";
+  if (minutes <= 8) return "Classic";
+  return "Distance";
+}
 
 type RaceHeaderProps = {
   race: HeaderRace | null;
@@ -71,6 +79,7 @@ export default function RaceHeader({ race, remainingMs, racedayStatus, poolSize 
     isRaceDay && isScheduled && resolvedRaceDayStatus === "running";
   const isAwaitingRaceDay = !raceReady;
   const isRaceDayComplete = resolvedRaceDayStatus === "complete";
+  const isRaceDayCanceled = resolvedRaceDayStatus === "canceled";
 
   // Between rounds: preparing next heat but no start time yet (round transition)
   const isBetweenRounds = isPreparingNextHeat && (!race?.startAt || startAtMs <= 0);
@@ -120,7 +129,9 @@ export default function RaceHeader({ race, remainingMs, racedayStatus, poolSize 
         : isFinished
           ? isRaceDayComplete
             ? "Tournament Complete"
-            : "Race Finished"
+            : isRaceDayCanceled
+              ? "Tournament Canceled"
+              : "Race Finished"
           : status === "voided"
             ? "Race Voided"
             : isPolling
@@ -140,67 +151,55 @@ export default function RaceHeader({ race, remainingMs, racedayStatus, poolSize 
                     : "Betting Open";
 
   return (
-    <section className="surface animate-fade-up relative overflow-hidden rounded-3xl p-6">
-      <div className="relative z-10 flex flex-col gap-6">
-        <div className="flex flex-wrap items-start justify-between gap-6">
+    <section className="surface animate-fade-up relative overflow-hidden rounded-3xl p-4 md:p-6">
+      <div className="relative z-10 flex flex-col gap-4 md:gap-6">
+        <div className="flex flex-col gap-4 md:flex-row md:flex-wrap md:items-start md:justify-between md:gap-6">
           <div>
             {isAwaitingRaceDay ? (
               <>
                 <p className="text-xs uppercase tracking-[0.3em] text-slate">
                   Next heat
                 </p>
-                <h2 className="font-display text-5xl uppercase tracking-[0.12em] text-midnight">
+                <h2 className="font-display text-3xl md:text-5xl uppercase tracking-[0.12em] text-midnight">
                   Awaiting RaceDay Event
                 </h2>
               </>
             ) : showRaceInfo && isRaceDay && racedayLevel !== null && racedayHeatNumber !== null ? (
               <>
                 <p className="text-xs uppercase tracking-[0.3em] text-slate">
-                  {isPreparingNextHeat ? "Up Next" : `Round ${racedayLevel}`}
+                  {race?.racedayName || "RaceDay Event"}
                 </p>
-                <h2 className="font-display text-5xl uppercase tracking-[0.12em] text-midnight">
-                  {isPreparingNextHeat ? (
-                    // Show "Round X, Heat Y" when preparing, gives full context
-                    <>Round {racedayLevel}, Heat {racedayHeatNumber}</>
-                  ) : (
-                    <>
-                      Heat {racedayHeatNumber}
-                      {totalHeats ? ` of ${totalHeats}` : ""}
-                    </>
-                  )}
+                <h2 className="font-display text-3xl md:text-5xl uppercase tracking-[0.12em] text-midnight">
+                  {race?.track?.name || "Race Track"}
                 </h2>
               </>
             ) : (
               <>
                 <p className="text-xs uppercase tracking-[0.3em] text-slate">
-                  {isPolling ? "Tournament" : isRaceDayPicking ? "Choose your racehorses" : "Next heat"}
+                  {isPolling || isRaceDayPicking ? "Tournament" : "Next heat"}
                 </p>
-                <h2 className="font-display text-5xl uppercase tracking-[0.12em] text-midnight">
+                <h2 className="font-display text-3xl md:text-5xl uppercase tracking-[0.12em] text-midnight">
                   {race?.racedayName || "RaceDay Event"}
                 </h2>
               </>
             )}
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              {/* LIVE indicator when race is running */}
-              {isRunning && (
-                <span className="flex items-center gap-2 rounded-full bg-red-600 px-3 py-1 text-xs font-bold uppercase tracking-[0.2em] text-white">
-                  <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
-                  </span>
-                  Live
-                </span>
-              )}
               {showRaceInfo && isRaceDay ? (
                 <>
-                  {race?.track?.name && (
+                  <span className="rounded-full bg-accent2/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-accent2">
+                    Round {racedayLevel}
+                  </span>
+                  <span className="rounded-full bg-accent2/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-accent2">
+                    Heat {racedayHeatNumber}{totalHeats ? ` of ${totalHeats}` : ""}
+                  </span>
+                  {race?.track?.surface && (
                     <span className="rounded-full bg-midnight/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-midnight">
-                      {race.track.name}
+                      {surfaceLabels[race.track.surface] ?? race.track.surface}
                     </span>
                   )}
-                  {race?.track?.surface && (
-                    <span className="rounded-full bg-amber-600/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">
-                      {surfaceLabels[race.track.surface] ?? race.track.surface}
+                  {getTrackSizeLabel(race?.track?.durationSecs) && (
+                    <span className="rounded-full bg-midnight/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-midnight">
+                      {getTrackSizeLabel(race?.track?.durationSecs)}
                     </span>
                   )}
                   {showWeather && <WeatherBadge weatherName={race?.weather?.name} />}
@@ -224,15 +223,19 @@ export default function RaceHeader({ race, remainingMs, racedayStatus, poolSize 
             </div>
           </div>
 
-          <div className="text-right">
-            <p className="text-xs uppercase tracking-[0.3em] text-slate">Race Rewards</p>
-            <p className="font-display text-3xl uppercase tracking-[0.1em] text-accent2">
-              {poolSize.toFixed(2)} ARKEO
-            </p>
-            <p className="mt-2 text-xs uppercase tracking-[0.3em] text-slate">Race Status</p>
-            <p className={`font-display text-3xl uppercase tracking-[0.1em] whitespace-nowrap ${isRunning ? "text-red-600" : "text-ink"}`}>
-              {statusValue}
-            </p>
+          <div className="flex gap-6 md:block md:text-right">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-slate">Race Rewards</p>
+              <p className="font-display text-xl md:text-3xl uppercase tracking-[0.1em] text-accent2">
+                {poolSize.toFixed(2)} ARKEO
+              </p>
+            </div>
+            <div className="md:mt-2">
+              <p className="text-xs uppercase tracking-[0.3em] text-slate">Race Status</p>
+              <p className={`font-display text-xl md:text-3xl uppercase tracking-[0.1em] ${isRunning ? "text-red-600" : "text-ink"}`}>
+                {statusValue}
+              </p>
+            </div>
           </div>
         </div>
       </div>

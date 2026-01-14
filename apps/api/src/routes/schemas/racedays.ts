@@ -74,3 +74,10 @@ export const getRaceDayPayoutsSchema = z.object({
     id: uuidParam
   })
 });
+
+// POST /racedays/:id/process-payouts - Process and send ARKEO payouts
+export const processRaceDayPayoutsSchema = z.object({
+  params: z.object({
+    id: uuidParam
+  })
+});

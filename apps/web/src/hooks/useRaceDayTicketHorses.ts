@@ -63,6 +63,7 @@ type LeaderboardPlayer = {
 
 type TicketHorse = {
   raceHorseId: string;
+  horseId: string;
   displayName: string;
   serviceType: { displayName: string; iconKey: string };
   providerMoniker?: string | null;
@@ -341,6 +342,7 @@ export function useRaceDayTicketHorses(walletAddress?: string | null, raceDayId?
         const detail = horseDetails[entry.raceDayHorseId];
         return {
           raceHorseId: entry.raceDayHorseId,
+          horseId: entry.horseId,
           displayName: entry.displayName,
           serviceType: detail?.serviceType ?? { displayName: "Loading...", iconKey: "arkeo" },
           providerMoniker: detail?.providerMoniker ?? null,

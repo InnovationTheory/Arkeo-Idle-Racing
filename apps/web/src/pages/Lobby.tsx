@@ -653,13 +653,13 @@ export default function Lobby() {
         <div className="flex flex-col gap-4">
           {/* Status block - shown during scheduled, polling, and picking phases */}
           {(raceDay?.status === "scheduled" || raceDay?.status === "polling" || raceDay?.status === "picking") && (
-            <div className="surface relative flex flex-col gap-4 rounded-3xl p-6">
+            <div className="surface relative flex flex-col gap-3 md:gap-4 rounded-3xl p-4 md:p-6">
               <div className="flex items-center justify-between">
                 <div className="flex-1">
                   <p className="text-xs uppercase tracking-[0.3em] text-slate">
                     {raceDay?.status === "picking" ? "Choose Your Racehorses" : "Preparing Races"}
                   </p>
-                  <h3 className="font-display text-3xl uppercase tracking-[0.1em] text-ink">
+                  <h3 className="font-display text-xl md:text-3xl uppercase tracking-[0.1em] text-ink">
                     {raceDay?.status === "scheduled"
                       ? "Waiting for event to start"
                       : raceDay?.status === "polling"
@@ -678,7 +678,7 @@ export default function Lobby() {
                       key={heat.heatId}
                       type="button"
                       onClick={() => setHeatIndex(idx)}
-                      className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.15em] transition ${
+                      className={`rounded-full px-3 py-1.5 md:px-4 md:py-2 text-[10px] md:text-xs font-semibold uppercase tracking-[0.15em] transition ${
                         heatIndex === idx
                           ? "bg-accent text-white"
                           : "bg-midnight/10 text-midnight hover:bg-midnight/20"
@@ -689,6 +689,25 @@ export default function Lobby() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+          {/* Go watch the race - shown during running phase */}
+          {raceDay?.status === "running" && (
+            <div className="surface relative flex flex-col gap-3 md:gap-4 rounded-3xl p-4 md:p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <p className="text-xs uppercase tracking-[0.3em] text-slate">Race In Progress</p>
+                  <h3 className="font-display text-xl md:text-3xl uppercase tracking-[0.1em] text-ink">
+                    Go Watch the Race
+                  </h3>
+                </div>
+                <a
+                  href="/race"
+                  className="rounded-full bg-accent px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white transition hover:-translate-y-0.5"
+                >
+                  Watch Now
+                </a>
+              </div>
             </div>
           )}
           {/* Horse Lineup - ONLY shown during picking phase */}
@@ -1113,8 +1132,54 @@ export default function Lobby() {
                     <li>Add a nickname to your account.</li>
                     <li>Select up to 3 horses from the Round 1 heats.</li>
                     <li>Watch the races unfold across 4 rounds.</li>
+                    <li>Top 5 horses advance in each race. In the final race, the top 3 win.</li>
                     <li>Earn rewards as your horses advance and finish in the top 3.</li>
                   </ol>
+                </div>
+
+                <div className="border-t border-dashed border-midnight/20 pt-3">
+                  <p className="text-xs uppercase tracking-[0.3em] text-slate">Track Types</p>
+                  <p className="mt-2">
+                    Tracks vary by length, pace, and surface. Short tracks favor fast starts,
+                    long tracks reward stamina and late surges.
+                  </p>
+                  <ul className="mt-2 space-y-1 pl-4">
+                    <li>Short: fast ticks, quick races, early speed matters.</li>
+                    <li>Medium: balanced pace, steady performance wins.</li>
+                    <li>Long: more ticks, endurance and late moves matter.</li>
+                    <li>Surface: dirt, turf, or synthetic can shift performance.</li>
+                  </ul>
+                </div>
+
+                <div className="border-t border-dashed border-midnight/20 pt-3">
+                  <p className="text-xs uppercase tracking-[0.3em] text-slate">Weather</p>
+                  <p className="mt-2">
+                    Weather adds unpredictable pressure to the race. It can increase latency,
+                    jitter, and error rates, creating spikes and shakeups mid‑race.
+                  </p>
+                  <ul className="mt-2 space-y-1 pl-4">
+                    <li>Clear: stable conditions and smoother pacing.</li>
+                    <li>Haze/Winds: moderate jitter and occasional spikes.</li>
+                    <li>Storms: higher error pressure and volatility.</li>
+                  </ul>
+                </div>
+
+                <div className="border-t border-dashed border-midnight/20 pt-3">
+                  <p className="text-xs uppercase tracking-[0.3em] text-slate">Horse Types</p>
+                  <p className="mt-2">
+                    Every horse has a racing style that shapes how it performs across the race.
+                  </p>
+                  <ul className="mt-2 space-y-1 pl-4">
+                    <li>Front Runner: fast start, can fade late.</li>
+                    <li>Stalker: steady and consistent, stays in range.</li>
+                    <li>Stretch Runner: slow early, strong late finish.</li>
+                    <li>Grinder: durable, gains late through stamina.</li>
+                    <li>Burst: one big surge, high variance.</li>
+                    <li>Erratic: unpredictable spikes and drops.</li>
+                  </ul>
+                  <p className="mt-2 text-xs text-slate">
+                    Temperament controls volatility: calm, normal, or volatile.
+                  </p>
                 </div>
 
                 <div className="border-t border-dashed border-midnight/20 pt-3">

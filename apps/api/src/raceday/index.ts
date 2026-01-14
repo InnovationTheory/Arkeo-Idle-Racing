@@ -23,6 +23,7 @@ import { NotFoundError, ValidationError } from "../errors";
 import { HeatsConfig, HeatResult, HeatMetadata } from "../types/prisma-json";
 import { raceDayLogger } from "../logger";
 import { calculateRaceOdds } from "../race/odds";
+import { sendArkeoReward } from "../arkeo/send";
 import {
   ROUND_HEATS,
   HEAT_SIZE,
@@ -1673,5 +1674,136 @@ async function persistRaceDayPayouts(raceDayId: string): Promise<void> {
   if (payoutRows.length > 0) {
     await prisma.raceDayPayout.createMany({ data: payoutRows });
     raceDayLogger.info({ raceDayId, payoutCount: payoutRows.length }, "Persisted RaceDay payouts");
+
+    // Send ARKEO rewards automatically if hot wallet is configured
+    if (config.hotWalletEnabled) {
+      await sendRaceDayRewards(raceDayId, raceDay.name);
+    } else {
+      raceDayLogger.warn({ raceDayId }, "Hot wallet not configured, skipping automatic reward distribution");
+    }
   }
+}
+
+/**
+ * Send ARKEO rewards to users after a raceday completes
+ */
+async function sendRaceDayRewards(raceDayId: string, raceDayName: string): Promise<void> {
+  // Fetch payouts with user wallet addresses
+  const payouts = await prisma.raceDayPayout.findMany({
+    where: { raceDayId, paidAt: null },
+    include: {
+      user: {
+        select: { id: true, walletAddress: true, nickname: true }
+      }
+    }
+  });
+
+  if (payouts.length === 0) {
+    raceDayLogger.info({ raceDayId }, "No unpaid payouts to process");
+    return;
+  }
+
+  // Group payouts by user
+  const userPayoutMap = new Map<string, {
+    walletAddress: string | null;
+    nickname: string | null;
+    totalReward: number;
+    payoutIds: string[];
+  }>();
+
+  for (const payout of payouts) {
+    const existing = userPayoutMap.get(payout.userId);
+    if (existing) {
+      existing.totalReward += payout.totalReward;
+      existing.payoutIds.push(payout.id);
+    } else {
+      userPayoutMap.set(payout.userId, {
+        walletAddress: payout.user.walletAddress,
+        nickname: payout.user.nickname,
+        totalReward: payout.totalReward,
+        payoutIds: [payout.id]
+      });
+    }
+  }
+
+  // Safety check: verify total rewards don't exceed pool
+  const raceDay = await prisma.raceDay.findUnique({
+    where: { id: raceDayId },
+    select: { poolCredits: true }
+  });
+
+  if (!raceDay) {
+    raceDayLogger.error({ raceDayId }, "RaceDay not found for reward validation");
+    return;
+  }
+
+  const totalRewards = payouts.reduce((sum, p) => sum + p.totalReward, 0);
+  if (totalRewards > raceDay.poolCredits) {
+    raceDayLogger.error(
+      { raceDayId, totalRewards, poolCredits: raceDay.poolCredits },
+      "SECURITY: Total rewards exceed pool! Aborting payout to prevent over-distribution."
+    );
+    return;
+  }
+
+  raceDayLogger.info(
+    { raceDayId, totalRewards, poolCredits: raceDay.poolCredits, userCount: userPayoutMap.size },
+    "Pool validation passed, proceeding with reward distribution"
+  );
+
+  const arkeoMultiplier = BigInt(10 ** config.arkeoDecimals);
+  let paidCount = 0;
+  let failedCount = 0;
+  let noWalletCount = 0;
+
+  for (const [userId, userPayout] of userPayoutMap) {
+    // Skip if user has no wallet address
+    if (!userPayout.walletAddress) {
+      noWalletCount++;
+      raceDayLogger.debug({ raceDayId, userId }, "User has no wallet address, skipping reward");
+      continue;
+    }
+
+    // Convert ARKEO to uarkeo (multiply by 10^8)
+    const amountUarkeo = BigInt(Math.floor(userPayout.totalReward * Number(arkeoMultiplier)));
+
+    // Send ARKEO reward
+    const sendResult = await sendArkeoReward({
+      toAddress: userPayout.walletAddress,
+      amountUarkeo,
+      memo: `Arkeo Racing: ${raceDayName}`
+    });
+
+    if (sendResult.ok) {
+      // Update all payout records for this user
+      await prisma.raceDayPayout.updateMany({
+        where: { id: { in: userPayout.payoutIds } },
+        data: {
+          paidAt: new Date(),
+          txHash: sendResult.txHash
+        }
+      });
+      paidCount++;
+      raceDayLogger.info(
+        { raceDayId, userId, walletAddress: userPayout.walletAddress, amount: userPayout.totalReward, txHash: sendResult.txHash },
+        "Sent ARKEO reward"
+      );
+    } else {
+      // Record the error
+      await prisma.raceDayPayout.updateMany({
+        where: { id: { in: userPayout.payoutIds } },
+        data: { errorMessage: sendResult.error }
+      });
+      failedCount++;
+      raceDayLogger.error(
+        { raceDayId, userId, walletAddress: userPayout.walletAddress, error: sendResult.error },
+        "Failed to send ARKEO reward"
+      );
+    }
+  }
+
+  raceDayLogger.info(
+    { raceDayId, paid: paidCount, failed: failedCount, noWallet: noWalletCount },
+    "Completed reward distribution"
+  );
 }

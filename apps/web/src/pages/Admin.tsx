@@ -280,11 +280,11 @@ export default function Admin() {
             </button>
           </div>
         )}
-        {racedays.filter((rd) => rd.status !== "canceled").length === 0 ? (
+        {racedays.length === 0 ? (
           <p className="text-slate">No racedays</p>
         ) : (
           <div className="flex flex-col gap-3">
-            {racedays.filter((rd) => rd.status !== "canceled").map((rd) => (
+            {racedays.map((rd) => (
               <div
                 key={rd.raceDayId}
                 className="flex items-center justify-between gap-6 rounded-xl bg-panel/50 px-5 py-4"
@@ -300,6 +300,8 @@ export default function Admin() {
                         ? "bg-accent/20 text-accent"
                         : rd.status === "complete"
                         ? "bg-green-600/20 text-green-600"
+                        : rd.status === "canceled"
+                        ? "bg-warning/20 text-warning"
                         : rd.status === "scheduled"
                         ? "bg-midnight/10 text-midnight"
                         : "bg-slate/20 text-slate"

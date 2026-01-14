@@ -380,6 +380,9 @@ model RaceDayPayout {
   totalReward     Float
   breakdownJson   Json
   createdAt       DateTime     @default(now())
+  paidAt          DateTime?
+  txHash          String?
+  errorMessage    String?
   raceDay         RaceDay      @relation(fields: [raceDayId], references: [id])
   user            User         @relation(fields: [userId], references: [id])
   raceDayHorse    RaceDayHorse @relation(fields: [raceDayHorseId], references: [id])

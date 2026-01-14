@@ -9,8 +9,10 @@ import RaceDay from "./pages/RaceDay";
 import Admin from "./pages/Admin";
 import HorseSilhouette from "./components/HorseSilhouette";
 import SelectionBanner from "./components/SelectionBanner";
+import RaceNotification from "./components/RaceNotification";
 import { LockedSelectionProvider, useLockedSelection } from "./hooks/useLockedSelection";
 import { useCurrentRace } from "./queries";
+import { SoundProvider, useSound } from "./hooks";
 import "./index.css";
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
@@ -20,12 +22,13 @@ function AppLayout() {
   const { lockedHorse, raceId: lockedRaceId } = useLockedSelection();
   const { displayRace } = useCurrentRace();
   const raceId = displayRace?.raceId ?? lockedRaceId;
+  const { soundEnabled, toggleSound } = useSound();
 
   return (
     <div className="min-h-screen">
-      <div className="mx-auto max-w-6xl px-6 md:px-12">
-        <header className="py-4">
-          <div className="flex items-center justify-between">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 pt-6 md:px-12">
+        <header>
+          <div className="flex flex-col gap-4 rounded-2xl bg-white/50 p-4 backdrop-blur-sm md:flex-row md:items-center md:justify-between md:bg-transparent md:backdrop-blur-none">
             <div className="flex items-center gap-3">
               <div className="flex flex-col items-center gap-0">
                 <div className="mt-2 flex h-6 w-6 items-center justify-center overflow-hidden rounded-full border border-midnight/10 bg-panel shadow-sm" style={{ transform: "translate(-6px, 2px)" }}>
@@ -43,15 +46,15 @@ function AppLayout() {
                 />
               </div>
               <div>
-                <p className="font-display text-4xl uppercase tracking-[0.2em] text-midnight">
+                <p className="font-display text-2xl md:text-4xl uppercase tracking-[0.2em] text-midnight">
                   Arkeo Idle Racing
                 </p>
-                <p className="text-xs uppercase tracking-[0.25em] text-slate">
+                <p className="text-[10px] md:text-xs uppercase tracking-[0.25em] text-slate">
                   Competitive Provider & Subscriber Testing
                 </p>
               </div>
             </div>
-            <nav className="flex gap-6">
+            <nav className="flex items-center justify-center gap-4 md:justify-start md:gap-6">
               <NavLink to="/" className={navLinkClass}>
                 Lobby
               </NavLink>
@@ -61,11 +64,22 @@ function AppLayout() {
               <NavLink to="/raceday" className={navLinkClass}>
                 RaceDay
               </NavLink>
+              <button
+                type="button"
+                onClick={toggleSound}
+                aria-pressed={soundEnabled}
+                className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] transition ${
+                  soundEnabled ? "bg-accent text-white" : "bg-ink/10 text-ink"
+                }`}
+              >
+                {soundEnabled ? "Sound On" : "Sound Off"}
+              </button>
             </nav>
           </div>
         </header>
 
-        <main className="flex flex-col gap-7 pb-12">
+        <main className="flex flex-col gap-6 pb-12">
+          <RaceNotification />
           <Routes>
             <Route path="/" element={<Lobby />} />
             <Route path="/race" element={<Race />} />
@@ -87,7 +101,9 @@ function App() {
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <LockedSelectionProvider>
-        <AppLayout />
+        <SoundProvider>
+          <AppLayout />
+        </SoundProvider>
       </LockedSelectionProvider>
     </BrowserRouter>
   );

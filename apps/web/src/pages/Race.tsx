@@ -1,12 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import TrackView from "../components/TrackView";
 import RaceHeader from "../components/RaceHeader";
 import RaceTicketCompact from "../components/RaceTicketCompact";
-import { useWalletState, useRaceWebSocket, useRaceHeader } from "../hooks";
+import { useWalletState, useRaceWebSocket, useRaceHeader, useSound } from "../hooks";
 import { useRaceDayTicketHorses } from "../hooks/useRaceDayTicketHorses";
-import { useRaceSelections, usePrepBaselines, type RaceSelection } from "../queries";
+import { useRaceSelections, usePrepBaselines, type RaceSelection, type Race } from "../queries";
 import { horseStyle } from "../utils/horseStyle";
 import { buildRaceDaySlotLabel } from "../utils/racedayLabels";
+import { apiGet } from "../api";
 
 export default function Race() {
   const walletState = useWalletState();
@@ -20,6 +21,7 @@ export default function Race() {
     racedayStatus,
     raceDay,
     currentHeatInfo,
+    nextHeatRace,
     displayRace,
     displayHorses,
     race,
@@ -35,6 +37,81 @@ export default function Race() {
     storeWsPositions,
     mergeHorsePositions
   });
+
+  const raceStatus = displayRace?.status ?? race?.status ?? null;
+  const raceId = displayRace?.raceId ?? race?.raceId ?? null;
+
+  const { soundEnabled } = useSound();
+  const bellRef = React.useRef<HTMLAudioElement | null>(null);
+  const gallopRef = React.useRef<HTMLAudioElement | null>(null);
+  const lastBellRaceIdRef = React.useRef<string | null>(null);
+  const prevStatusRef = React.useRef<string | null>(null);
+
+  const playBell = useCallback(() => {
+    const bell = bellRef.current;
+    if (!bell) return;
+    bell.currentTime = 0;
+    void bell.play().catch(() => undefined);
+  }, []);
+
+  const startGallop = useCallback(() => {
+    const gallop = gallopRef.current;
+    if (!gallop) return;
+    if (gallop.paused) {
+      void gallop.play().catch(() => undefined);
+    }
+  }, []);
+
+  const stopGallop = useCallback(() => {
+    const gallop = gallopRef.current;
+    if (!gallop) return;
+    gallop.pause();
+    gallop.currentTime = 0;
+  }, []);
+
+  useEffect(() => {
+    const bell = new Audio("/audio/race-bell.wav");
+    bell.volume = 0.7;
+    bell.preload = "auto";
+    bellRef.current = bell;
+
+    const gallop = new Audio("/audio/gallop-loop.wav");
+    gallop.volume = 0.35;
+    gallop.loop = true;
+    gallop.preload = "auto";
+    gallopRef.current = gallop;
+
+    return () => {
+      bell.pause();
+      gallop.pause();
+      bellRef.current = null;
+      gallopRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!soundEnabled) {
+      stopGallop();
+      return;
+    }
+    if (raceStatus === "running") {
+      startGallop();
+    } else {
+      stopGallop();
+    }
+  }, [soundEnabled, raceStatus, startGallop, stopGallop]);
+
+  useEffect(() => {
+    const prevStatus = prevStatusRef.current;
+    if (soundEnabled && raceStatus === "running" && prevStatus !== "running") {
+      if (raceId && lastBellRaceIdRef.current !== raceId) {
+        playBell();
+        lastBellRaceIdRef.current = raceId;
+      }
+      startGallop();
+    }
+    prevStatusRef.current = raceStatus;
+  }, [soundEnabled, raceStatus, raceId, playBell, startGallop]);
 
   // Prep phase baselines for latency delta display
   const { baselineByHorseId: prepBaselineByHorseId, probesByHorse: prepProbesByHorse } =
@@ -57,10 +134,110 @@ export default function Race() {
   // Buffer event state for between-heat transitions
   const [bufferEvent, setBufferEvent] = useState<{ eventType: string; timestamp: number } | null>(null);
 
+  // Store previous race's horses when race finishes (for "horses leaving" display)
+  const [previousHorses, setPreviousHorses] = useState<typeof displayHorses | null>(null);
+  const [previousFinishRanks, setPreviousFinishRanks] = useState<Map<string, number> | null>(null);
+  const prevRaceIdRef = React.useRef<string | null>(null);
+
+  // Store upcoming race's horses for "horses entering" display
+  const [upcomingHorses, setUpcomingHorses] = useState<typeof displayHorses | null>(null);
+  const upcomingRaceIdRef = React.useRef<string | null>(null);
+
+  // Find the next scheduled heat's raceId for prefetching upcoming horses
+  const scheduledHeatRaceId = useMemo(() => {
+    if (!raceDay?.rounds?.length) return null;
+    let best: { round: number; heat: number; raceId: string | null } | null = null;
+    for (const round of raceDay.rounds) {
+      for (const heat of round.heats) {
+        if (heat.status !== "scheduled" || !heat.raceId) continue;
+        if (!best || round.roundNumber < best.round ||
+          (round.roundNumber === best.round && heat.heatNumber < best.heat)) {
+          best = { round: round.roundNumber, heat: heat.heatNumber, raceId: heat.raceId };
+        }
+      }
+    }
+    return best?.raceId ?? null;
+  }, [raceDay?.rounds]);
+
+  // Capture horses when race finishes
+  useEffect(() => {
+    const currentRaceId = displayRace?.raceId ?? race?.raceId;
+    const currentStatus = displayRace?.status ?? race?.status;
+
+    // When a race finishes, save its horses and finish ranks
+    if (currentStatus === "finished" && currentRaceId && currentRaceId !== prevRaceIdRef.current) {
+      setPreviousHorses([...displayHorses]);
+      setPreviousFinishRanks(new Map(finishRanks));
+      prevRaceIdRef.current = currentRaceId;
+    }
+  }, [displayRace?.raceId, displayRace?.status, race?.raceId, race?.status, displayHorses, finishRanks]);
+
+  // Ensure previous race horses are captured during buffer (even if displayRace already advanced)
+  useEffect(() => {
+    if (bufferEvent?.eventType !== "horses_leaving") return;
+    const finishedRaceId = currentHeatInfo?.raceId;
+    if (!finishedRaceId) return;
+
+    if (prevRaceIdRef.current === finishedRaceId && previousHorses?.length) {
+      return;
+    }
+
+    const setRanksFromPlacement = (horses: typeof displayHorses) => {
+      const ranks = new Map<string, number>();
+      horses.forEach((horse) => {
+        if (typeof horse.placement === "number") {
+          ranks.set(horse.raceHorseId, horse.placement);
+        }
+      });
+      if (ranks.size > 0) {
+        setPreviousFinishRanks(ranks);
+      } else if (finishRanks.size > 0) {
+        setPreviousFinishRanks(new Map(finishRanks));
+      }
+    };
+
+    if (displayRace?.raceId === finishedRaceId && displayHorses.length > 0) {
+      setPreviousHorses([...displayHorses]);
+      setRanksFromPlacement(displayHorses);
+      prevRaceIdRef.current = finishedRaceId;
+      return;
+    }
+
+    let cancelled = false;
+    const fetchFinished = async () => {
+      try {
+        const raceData = await apiGet<Race>(`/api/races/${finishedRaceId}`);
+        if (cancelled) return;
+        if (raceData?.horses?.length) {
+          setPreviousHorses(raceData.horses);
+          setRanksFromPlacement(raceData.horses);
+          prevRaceIdRef.current = finishedRaceId;
+        }
+      } catch {
+        // Ignore fetch errors; buffer will fall back to current display.
+      }
+    };
+
+    void fetchFinished();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    bufferEvent?.eventType,
+    currentHeatInfo?.raceId,
+    displayRace?.raceId,
+    displayHorses,
+    previousHorses?.length,
+    finishRanks
+  ]);
+
   // Calculate buffer event based on timing
   useEffect(() => {
-    // Only show buffer events when raceDay is running and we have a scheduled heat
-    if (raceDay?.status !== "running" || !currentHeatInfo?.startsAt) {
+    // Use nextHeatStartsAt if available (when showing finished heat), otherwise startsAt
+    const timingStartsAt = currentHeatInfo?.nextHeatStartsAt ?? currentHeatInfo?.startsAt;
+
+    // Only show buffer events when raceDay is running and we have timing info
+    if (raceDay?.status !== "running" || !timingStartsAt) {
       setBufferEvent(null);
       return;
     }
@@ -75,7 +252,7 @@ export default function Race() {
     }
 
     const updateEvent = () => {
-      const startsAt = new Date(currentHeatInfo.startsAt!).getTime();
+      const startsAt = new Date(timingStartsAt).getTime();
       const now = Date.now();
       const secondsUntilStart = Math.max(0, Math.floor((startsAt - now) / 1000));
       // Use half of buffer duration as the midpoint for switching messages
@@ -93,47 +270,61 @@ export default function Race() {
     updateEvent();
     const interval = setInterval(updateEvent, 1000);
     return () => clearInterval(interval);
-  }, [raceDay?.status, raceDay?.bufferSecs, currentHeatInfo?.startsAt, displayRace?.status, race?.status]);
+  }, [raceDay?.status, raceDay?.bufferSecs, currentHeatInfo?.startsAt, currentHeatInfo?.nextHeatStartsAt, displayRace?.status, race?.status]);
 
-  // Notification state for when user's horse is racing
-  const [notification, setNotification] = useState<string | null>(null);
-  const lastNotifiedHeatRef = React.useRef<string | null>(null);
-
-  // Show notification when horses enter the gates (second half of buffer)
+  // Prefetch upcoming race's horses when a scheduled heat exists
   useEffect(() => {
-    // Only trigger during "horses_entering" phase
-    if (bufferEvent?.eventType !== "horses_entering") {
+    if (!scheduledHeatRaceId) {
       return;
     }
 
-    // Create a unique key for this heat to prevent duplicate notifications
-    const heatKey = currentHeatInfo
-      ? `${currentHeatInfo.round}-${currentHeatInfo.heat}`
-      : null;
-
-    if (!heatKey || lastNotifiedHeatRef.current === heatKey) {
+    // Don't re-fetch if we already have this race's horses
+    if (upcomingRaceIdRef.current === scheduledHeatRaceId) {
       return;
     }
 
-    // Check if any of user's horses are in this race
-    const userHorseNames = ticketHorses.map((h) => h.displayName.toLowerCase());
-    const racingUserHorses = displayHorses.filter((h) =>
-      userHorseNames.includes(h.displayName.toLowerCase())
-    );
-
-    if (racingUserHorses.length > 0) {
-      lastNotifiedHeatRef.current = heatKey;
-      const horseNames = racingUserHorses.map((h) => h.displayName).join(", ");
-      setNotification(`Your horse is racing: ${horseNames}`);
+    // Don't fetch if displayRace already has the upcoming race
+    if (displayRace?.raceId === scheduledHeatRaceId) {
+      return;
     }
-  }, [bufferEvent?.eventType, currentHeatInfo, displayHorses, ticketHorses]);
 
-  // Auto-dismiss notification after 5 seconds
+    let cancelled = false;
+    const fetchUpcoming = async () => {
+      try {
+        const raceData = await apiGet<Race>(`/api/races/${scheduledHeatRaceId}`);
+        if (cancelled) return;
+        if (raceData?.horses) {
+          setUpcomingHorses(raceData.horses);
+          upcomingRaceIdRef.current = scheduledHeatRaceId;
+        }
+      } catch {
+        // Ignore fetch errors - will fall back to displayHorses
+      }
+    };
+
+    void fetchUpcoming();
+    return () => { cancelled = true; };
+  }, [scheduledHeatRaceId, displayRace?.raceId]);
+
+  // Use next heat snapshot from RaceDay WS when available
   useEffect(() => {
-    if (!notification) return;
-    const timeout = setTimeout(() => setNotification(null), 5000);
-    return () => clearTimeout(timeout);
-  }, [notification]);
+    if (!nextHeatRace?.raceId || !nextHeatRace.horses?.length) {
+      return;
+    }
+    if (upcomingRaceIdRef.current === nextHeatRace.raceId) {
+      return;
+    }
+    setUpcomingHorses(nextHeatRace.horses);
+    upcomingRaceIdRef.current = nextHeatRace.raceId;
+  }, [nextHeatRace]);
+
+  // Clear upcoming horses when race starts (displayRace takes over)
+  useEffect(() => {
+    if (displayRace?.raceId && displayRace.raceId === upcomingRaceIdRef.current) {
+      setUpcomingHorses(null);
+      upcomingRaceIdRef.current = null;
+    }
+  }, [displayRace?.raceId]);
 
   // Update finish ranks from race data when finished
   useEffect(() => {
@@ -213,60 +404,103 @@ export default function Race() {
       </div>
     ) : (
       <TrackView
-        horses={displayHorses.map((horse, index) => {
-          const baseline = prepBaselineByHorseId.get(horse.raceHorseId);
-          const liveLatency = horse.metrics?.latencyMs;
-          const deltaMs =
-            typeof baseline === "number" && typeof liveLatency === "number"
-              ? baseline - liveLatency
-              : null;
-          const prepProbes = prepProbesByHorse[horse.raceHorseId];
-          const currentRace = displayRace ?? race;
-          const isRaceDay = typeof currentRace?.racedayLevel === "number";
-          const laneNumber = horse.lane ?? index + 1;
-          const slotLabel = isRaceDay && currentRace?.racedayLevel && currentRace?.racedayHeatNumber
-            ? buildRaceDaySlotLabel(currentRace.racedayLevel, currentRace.racedayHeatNumber, laneNumber)
-            : undefined;
-          const selectedBy = selectedByMap.get(horse.raceHorseId) ?? [];
-          // During "horses_entering" phase, reset positions to starting line
+        horses={(() => {
+          // During "horses_leaving" phase, show the previous race's horses at finish positions
           const isEnteringPhase = bufferEvent?.eventType === "horses_entering";
-          const displayPosition = isEnteringPhase ? 0 : (horse.position ?? 0);
-          return {
-            raceHorseId: horse.raceHorseId,
-            displayName: horse.displayName,
-            position: displayPosition,
-            rank: isEnteringPhase ? undefined : rankMap.get(horse.raceHorseId),
-            finishRank: isEnteringPhase ? undefined : finishRanks.get(horse.raceHorseId),
-            serviceIconKey: horse.serviceType?.iconKey,
-            serviceName: horse.serviceType?.displayName,
-            jerseyColor: jerseyColors.get(horse.raceHorseId),
-            latencyDeltaMs: deltaMs,
-            liveLatencyMs: typeof liveLatency === "number" ? liveLatency : null,
-            errorType: horse.metrics?.errorType ?? null,
-            selectionCount: selectedBy.length,
-            card: {
-              horse: {
-                raceHorseId: horse.raceHorseId,
-                displayName: horse.displayName,
-                handicapTier: horse.handicapTier ?? "Light",
-                formScore: horse.formScore ?? 0,
-                difficultyMultiplier: horse.difficultyMultiplier ?? 1,
-                archetype: horse.archetype,
-                temperament: horse.temperament,
-                surfaceAffinity: horse.surfaceAffinity,
-                odds: horse.odds ?? null,
-                record: horse.record,
-                serviceType: horse.serviceType,
-                assignedProvider: horse.assignedProvider
-              },
-              prepProbes,
-              slotNumber: index + 1,
-              slotLabel,
-              jerseyColor: jerseyColors.get(horse.raceHorseId),
-              selectedBy
-            }
-          };
-        })}
+          const upcomingFromDisplay =
+            isEnteringPhase &&
+            currentHeatInfo?.raceId &&
+            displayRace?.raceId === currentHeatInfo.raceId &&
+            displayHorses.length > 0;
+          const hasUpcoming = Boolean(upcomingHorses?.length) || upcomingFromDisplay;
+          const fallbackToLeaving = isEnteringPhase && !hasUpcoming && previousHorses?.length;
+          const isLeavingPhase =
+            (bufferEvent?.eventType === "horses_leaving" || fallbackToLeaving) && Boolean(previousHorses?.length);
+          const showEntering = isEnteringPhase && hasUpcoming;
+          const enteringHorses = upcomingHorses?.length
+            ? upcomingHorses
+            : upcomingFromDisplay
+              ? displayHorses
+              : null;
+
+          // Determine which horses to render based on buffer phase
+          // - Leaving phase: show previous race's horses at finish line
+          // - Entering phase: show upcoming race's horses at starting line
+          // - Otherwise: show current displayHorses
+          const horsesToRender = showEntering && enteringHorses
+            ? enteringHorses
+            : isLeavingPhase && previousHorses?.length
+              ? previousHorses
+              : displayHorses;
+          const ranksToUse = isLeavingPhase && previousFinishRanks ? previousFinishRanks : finishRanks;
+
+          return horsesToRender.map((horse, index) => {
+            const baseline = prepBaselineByHorseId.get(horse.raceHorseId);
+            const liveLatency = horse.metrics?.latencyMs;
+            const deltaMs =
+              typeof baseline === "number" && typeof liveLatency === "number"
+                ? baseline - liveLatency
+                : null;
+            const prepProbes = prepProbesByHorse[horse.raceHorseId];
+            const currentRace = displayRace ?? race;
+            const isRaceDay = typeof currentRace?.racedayLevel === "number";
+            const laneNumber = horse.lane ?? index + 1;
+            const labelRound = currentHeatInfo?.round ?? currentRace?.racedayLevel ?? null;
+            const labelHeat = currentHeatInfo?.heat ?? currentRace?.racedayHeatNumber ?? null;
+            const slotLabel = isRaceDay && labelRound && labelHeat
+              ? buildRaceDaySlotLabel(labelRound, labelHeat, laneNumber)
+              : undefined;
+            const selectedBy = selectedByMap.get(horse.raceHorseId) ?? [];
+
+            // During "horses_entering" phase, reset positions to starting line
+            // During "horses_leaving" phase, show horses at finish (position 100)
+            const displayPosition = showEntering
+              ? 0
+              : isLeavingPhase
+                ? 100
+                : (horse.position ?? 0);
+
+            const jerseyColor =
+              jerseyColors.get(horse.raceHorseId) ??
+              (horse.horseId ? horseStyle(horse.horseId).patternBaseColor : undefined);
+
+            return {
+              raceHorseId: horse.raceHorseId,
+              displayName: horse.displayName,
+              position: displayPosition,
+              rank: showEntering ? undefined : rankMap.get(horse.raceHorseId),
+              finishRank: showEntering ? undefined : ranksToUse.get(horse.raceHorseId),
+              serviceIconKey: horse.serviceType?.iconKey,
+              serviceName: horse.serviceType?.displayName,
+              jerseyColor,
+              latencyDeltaMs: deltaMs,
+              liveLatencyMs: typeof liveLatency === "number" ? liveLatency : null,
+              errorType: horse.metrics?.errorType ?? null,
+              selectionCount: selectedBy.length,
+              card: {
+                horse: {
+                  raceHorseId: horse.raceHorseId,
+                  displayName: horse.displayName,
+                  handicapTier: horse.handicapTier ?? "Light",
+                  formScore: horse.formScore ?? 0,
+                  difficultyMultiplier: horse.difficultyMultiplier ?? 1,
+                  archetype: horse.archetype,
+                  temperament: horse.temperament,
+                  surfaceAffinity: horse.surfaceAffinity,
+                  odds: horse.odds ?? null,
+                  record: horse.record,
+                  serviceType: horse.serviceType,
+                  assignedProvider: horse.assignedProvider
+                },
+                prepProbes,
+                slotNumber: index + 1,
+                slotLabel,
+                jerseyColor,
+                selectedBy
+              }
+            };
+          });
+        })()}
         raceStatus={(displayRace ?? race)?.status}
         racedayLevel={(displayRace ?? race)?.racedayLevel ?? null}
         event={bufferEvent ?? currentEvent}
@@ -275,22 +509,6 @@ export default function Race() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Notification toast */}
-      {notification && (
-        <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 animate-pulse">
-          <div className="flex items-center gap-3 rounded-full bg-accent px-6 py-3 shadow-lg">
-            <div className="h-2 w-2 rounded-full bg-white" />
-            <span className="text-sm font-semibold text-white">{notification}</span>
-            <button
-              type="button"
-              onClick={() => setNotification(null)}
-              className="ml-2 text-white/70 hover:text-white"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      )}
       <RaceHeader
         race={headerRace}
         remainingMs={remainingMs}
