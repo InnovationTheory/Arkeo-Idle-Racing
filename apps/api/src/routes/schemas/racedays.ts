@@ -8,7 +8,7 @@ export const createRaceDaySchema = z.object({
     startAt: z.string().datetime().optional(),
     tickMs: z.number().int().min(100).max(10000).optional(),
     raceDurationSecs: z.number().int().min(10).max(600).optional(),
-    pickWindowSecs: z.number().int().min(5).max(900).optional(),
+    pickWindowSecs: z.number().int().min(5).max(21600).optional(),
     bufferSecs: z.number().int().min(0).max(120).optional(),
     maxParallelHeats: z.number().int().min(1).max(8).optional(),
     poolCredits: z.number().int().min(1).max(10000).optional()
