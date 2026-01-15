@@ -173,6 +173,7 @@ model ServiceType {
   probeType   ProbeType
   providers   Provider[]
   raceHorses  RaceHorse[]
+  raceDayHorses RaceDayHorse[]
 }
 
 model Provider {
@@ -185,6 +186,7 @@ model Provider {
   reliabilityScore Float
   serviceType      ServiceType @relation(fields: [serviceTypeId], references: [id])
   raceHorses       RaceHorse[]
+  raceDayHorses    RaceDayHorse[]
   polls            RaceHorsePoll[]
 
   @@index([serviceTypeId])
