@@ -110,7 +110,8 @@ export default function Lobby() {
     disconnectWallet,
     openWalletSelect,
     closeWalletSelect,
-    handleNicknameAction
+    handleNicknameAction,
+    cancelNicknameEdit
   } = walletState;
   const hasNickname = Boolean(nickname?.trim());
 
@@ -196,11 +197,19 @@ export default function Lobby() {
     const fetchLeaderboard = async () => {
       try {
         const data = await apiGet<{
-          players: Array<{ walletAddress: string | null; estimatedReward: number }>;
+          players: Array<{
+            walletAddress: string | null;
+            estimatedReward: number;
+            paidReward?: number | null;
+            paymentStatus?: "paid" | "pending" | "failed" | "no_wallet";
+          }>;
         }>(`/api/racedays/${raceDay.raceDayId}/leaderboard`);
         if (!mounted) return;
         const myEntry = data.players?.find((p) => p.walletAddress === walletAddress);
-        setMyEstimatedReward(myEntry?.estimatedReward ?? 0);
+        const reward = myEntry?.paymentStatus === "paid" && typeof myEntry.paidReward === "number"
+          ? myEntry.paidReward
+          : myEntry?.estimatedReward ?? 0;
+        setMyEstimatedReward(reward);
       } catch {
         if (mounted) setMyEstimatedReward(0);
       }
@@ -483,6 +492,8 @@ export default function Lobby() {
         const slotLabel = slotMeta
           ? buildRaceDaySlotLabel(slotMeta.roundNumber, slotMeta.heatNumber, slotMeta.slotNumber)
           : undefined;
+        const roundNumber = slotMeta?.roundNumber;
+        const heatNumber = slotMeta?.heatNumber;
         const detail = raceDayHorseDetails[entry.raceDayHorseId];
         const serviceType = detail?.serviceType ?? {
           displayName: "RaceDay",
@@ -509,6 +520,8 @@ export default function Lobby() {
           jerseyColor: visual.patternBaseColor,
           slotNumber: entry.seedOrder,
           slotLabel,
+          roundNumber,
+          heatNumber,
           status
         };
       })
@@ -522,6 +535,8 @@ export default function Lobby() {
         jerseyColor?: string;
         slotNumber?: number;
         slotLabel?: string;
+        roundNumber?: number;
+        heatNumber?: number;
         status?: "pending" | "advancing" | "eliminated" | "winner";
       }>;
   }, [raceDaySelections, raceDayHorseMap, raceDaySlotMeta, raceDayHorseDetails, raceDayAdvancerIds, raceDay]);
@@ -737,6 +752,7 @@ export default function Lobby() {
                         key={entry.raceDayHorseId}
                         horse={{
                           raceHorseId: entry.raceDayHorseId,
+                          horseId: entry.horseId,
                           displayName: entry.displayName,
                           handicapTier: "Light",
                           formScore: 0,
@@ -827,6 +843,14 @@ export default function Lobby() {
                         >
                           {nicknameSaving ? "Saving" : "Save"}
                         </button>
+                        <button
+                          type="button"
+                          onClick={cancelNicknameEdit}
+                          disabled={nicknameSaving}
+                          className="rounded-full border border-midnight/20 px-3 py-2 text-xs uppercase tracking-[0.2em] text-midnight transition disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
                       </>
                     ) : (
                       <>
@@ -857,7 +881,7 @@ export default function Lobby() {
                   )}
                   {typeof myEstimatedReward === "number" && myEstimatedReward > 0 && (
                     <p className="mt-1 text-sm font-semibold text-accent2">
-                      Rewards: {myEstimatedReward.toFixed(2)} ARKEO
+                      Rewards: {myEstimatedReward.toFixed(8)} ARKEO
                     </p>
                   )}
                 </div>
@@ -865,13 +889,16 @@ export default function Lobby() {
 
               <div className="mt-4 border-t border-dashed border-midnight/20 pt-4">
                 <p className="mb-3 text-xs uppercase tracking-[0.3em] text-slate">Your Selections</p>
+                <p className="mb-3 text-xs text-slate">
+                  Pick up to 3 racehorses for your ticket.
+                </p>
                 <div className="flex flex-col gap-3">
                   {raceDayTicketActive && raceDayTicketHorses.length > 0 ? (
                     raceDayTicketHorses.map((horse) => {
                       const visual = horseStyle(horse.horseId);
                       const coatColor = visual.coatColor;
                       const ticketIcon = horse.serviceType?.iconKey
-                        ? serviceIconPath(horse.serviceType.iconKey)
+                        ? serviceIconPath(horse.serviceType.iconKey, horse.serviceType.displayName)
                         : null;
                       const horseStatus = horse.status ?? "pending";
                       const isEliminated = horseStatus === "eliminated";
@@ -919,7 +946,7 @@ export default function Lobby() {
                                     style={{ transform: "translate(-50%, -50%) translateX(-2px)" }}
                                   >
                                     <JerseyIcon
-                                      seed={horse.raceHorseId}
+                                      seed={horse.horseId ?? horse.raceHorseId}
                                       width={12}
                                       height={20}
                                       shape="square"
@@ -966,10 +993,28 @@ export default function Lobby() {
                               <p className="text-[10px] uppercase tracking-[0.2em] text-slate">
                                 {horse.serviceType?.displayName ?? "RaceDay"}
                               </p>
-                              {horse.providerMoniker && (
-                                <span className="mt-1 inline-flex rounded-full bg-green-600/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-green-600">
-                                  {horse.providerMoniker}
-                                </span>
+                              {(horse.providerMoniker || horse.roundNumber || horse.heatNumber) && (
+                                <div className="mt-1 flex flex-col items-start gap-1">
+                                  {horse.providerMoniker && (
+                                    <span className="inline-flex rounded-full bg-midnight/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-midnight">
+                                      {horse.providerMoniker}
+                                    </span>
+                                  )}
+                                  {(typeof horse.roundNumber === "number" || typeof horse.heatNumber === "number") && (
+                                    <div className="flex flex-wrap items-center gap-1">
+                                      {typeof horse.roundNumber === "number" && (
+                                        <span className="inline-flex rounded-full bg-accent2/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-accent2">
+                                          Round {horse.roundNumber}
+                                        </span>
+                                      )}
+                                      {typeof horse.heatNumber === "number" && (
+                                        <span className="inline-flex rounded-full bg-accent2/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-accent2">
+                                          Heat {horse.heatNumber}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
                               )}
                             </div>
                           </div>
@@ -990,7 +1035,7 @@ export default function Lobby() {
                       const visual = horseStyle(ticketHorse.horseId);
                       const coatColor = visual.coatColor;
                       const ticketIcon = ticketHorse.serviceType?.iconKey
-                        ? serviceIconPath(ticketHorse.serviceType.iconKey)
+                        ? serviceIconPath(ticketHorse.serviceType.iconKey, ticketHorse.serviceType.displayName)
                         : null;
                       return (
                         <div className="group relative flex w-full items-center gap-2 rounded-2xl border border-midnight/10 bg-panel/80 px-3 py-3">
@@ -1025,7 +1070,7 @@ export default function Lobby() {
                                 style={{ transform: "translate(-50%, -50%) translateX(-2px)" }}
                               >
                                 <JerseyIcon
-                                  seed={ticketHorse.raceHorseId}
+                                  seed={ticketHorse.horseId ?? ticketHorse.raceHorseId}
                                   width={12}
                                   height={20}
                                   shape="square"
@@ -1040,10 +1085,28 @@ export default function Lobby() {
                             <p className="text-[10px] uppercase tracking-[0.2em] text-slate">
                               {ticketHorse.serviceType?.displayName ?? "RaceDay"}
                             </p>
-                            {ticketHorse.providerMoniker && (
-                              <span className="mt-1 inline-flex rounded-full bg-green-600/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-green-600">
-                                {ticketHorse.providerMoniker}
-                              </span>
+                            {(ticketHorse.providerMoniker || ticketHorse.roundNumber || ticketHorse.heatNumber) && (
+                              <div className="mt-1 flex flex-col items-start gap-1">
+                                {ticketHorse.providerMoniker && (
+                                  <span className="inline-flex rounded-full bg-midnight/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-midnight">
+                                    {ticketHorse.providerMoniker}
+                                  </span>
+                                )}
+                                {(typeof ticketHorse.roundNumber === "number" || typeof ticketHorse.heatNumber === "number") && (
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    {typeof ticketHorse.roundNumber === "number" && (
+                                      <span className="inline-flex rounded-full bg-accent2/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-accent2">
+                                        Round {ticketHorse.roundNumber}
+                                      </span>
+                                    )}
+                                    {typeof ticketHorse.heatNumber === "number" && (
+                                      <span className="inline-flex rounded-full bg-accent2/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-accent2">
+                                        Heat {ticketHorse.heatNumber}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
                           {!selectionLocked && (
@@ -1179,6 +1242,22 @@ export default function Lobby() {
                   </ul>
                   <p className="mt-2 text-xs text-slate">
                     Temperament controls volatility: calm, normal, or volatile.
+                  </p>
+                </div>
+
+                <div className="border-t border-dashed border-midnight/20 pt-3">
+                  <p className="text-xs uppercase tracking-[0.3em] text-slate">Odds</p>
+                  <p className="mt-2">
+                    Odds are the pre-race hype meter based on archetype, temperament, surface,
+                    and past performance. Lower odds signal a stronger favorite; higher odds mean
+                    a longer shot.
+                  </p>
+                  <ul className="mt-2 space-y-1 pl-4">
+                    <li>EVEN, 3‑2, 4‑1: safer favorites with smaller rewards.</li>
+                    <li>12‑1 or 20‑1: longshots that need more luck but pay bigger.</li>
+                  </ul>
+                  <p className="mt-2 text-xs text-slate">
+                    Odds weight rewards. Bigger odds earn a larger share if they place.
                   </p>
                 </div>
 

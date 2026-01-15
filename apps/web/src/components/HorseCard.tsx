@@ -24,6 +24,7 @@ type HorseRecord = {
 type HorseCardProps = {
   horse: {
     raceHorseId: string;
+    horseId?: string;
     displayName: string;
     handicapTier?: string;
     formScore?: number;
@@ -73,8 +74,9 @@ export default function HorseCard({
   raceStatus,
   slotLabel
 }: HorseCardProps) {
-  const coinIconPath = serviceIconPath(horse.serviceType.iconKey);
-  const visual = horseStyle(horse.raceHorseId);
+  const coinIconPath = serviceIconPath(horse.serviceType.iconKey, horse.serviceType.displayName);
+  const visualSeed = horse.horseId ?? horse.raceHorseId;
+  const visual = horseStyle(visualSeed);
   const horseSize = 78;
   const coinSize = 26;
   const tileSize = 30;
@@ -193,7 +195,7 @@ export default function HorseCard({
               style={{ transform: "translate(-50%, -50%) translateX(-3px)" }}
             >
               <JerseyIcon
-                seed={horse.raceHorseId}
+                seed={visualSeed}
                 width={tileWidth}
                 height={tileHeight}
                 shape="square"

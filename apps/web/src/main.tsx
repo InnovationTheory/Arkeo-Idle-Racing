@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
+import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { queryClient } from "./queryClient";
 import Lobby from "./pages/Lobby";
 import Race from "./pages/Race";
@@ -10,6 +10,7 @@ import Admin from "./pages/Admin";
 import HorseSilhouette from "./components/HorseSilhouette";
 import SelectionBanner from "./components/SelectionBanner";
 import RaceNotification from "./components/RaceNotification";
+import QuickstartModal from "./components/QuickstartModal";
 import { LockedSelectionProvider, useLockedSelection } from "./hooks/useLockedSelection";
 import { useCurrentRace } from "./queries";
 import { SoundProvider, useSound } from "./hooks";
@@ -19,13 +20,36 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   `text-sm font-bold uppercase tracking-[0.2em] ${isActive ? "text-accent" : "text-midnight/70"}`;
 
 function AppLayout() {
+  const location = useLocation();
   const { lockedHorse, raceId: lockedRaceId } = useLockedSelection();
   const { displayRace } = useCurrentRace();
   const raceId = displayRace?.raceId ?? lockedRaceId;
   const { soundEnabled, toggleSound } = useSound();
+  const [showQuickstart, setShowQuickstart] = React.useState(false);
+
+  const quickstartKey = "arkeo.quickstart.dismissed";
+  const hideQuickstart = () => setShowQuickstart(false);
+  const dismissQuickstart = () => {
+    localStorage.setItem(quickstartKey, "1");
+    setShowQuickstart(false);
+  };
+
+  React.useEffect(() => {
+    const dismissed = localStorage.getItem(quickstartKey) === "1";
+    if (!dismissed) {
+      setShowQuickstart(true);
+    }
+  }, []);
+
+  const allowQuickstart = location.pathname !== "/admin";
 
   return (
     <div className="min-h-screen">
+      <QuickstartModal
+        open={showQuickstart && allowQuickstart}
+        onClose={hideQuickstart}
+        onDontShowAgain={dismissQuickstart}
+      />
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 pt-6 md:px-12">
         <header>
           <div className="flex flex-col gap-4 rounded-2xl bg-white/50 p-4 backdrop-blur-sm md:flex-row md:items-center md:justify-between md:bg-transparent md:backdrop-blur-none">

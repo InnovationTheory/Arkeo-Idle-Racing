@@ -7,6 +7,7 @@ import type { useWalletState } from "../hooks/useWalletState";
 
 type TicketHorse = {
   raceHorseId: string;
+  horseId?: string;
   displayName: string;
   odds?: number | null;
   serviceType?: {
@@ -17,6 +18,8 @@ type TicketHorse = {
   jerseyColor?: string;
   slotNumber?: number;
   slotLabel?: string;
+  roundNumber?: number;
+  heatNumber?: number;
   status?: "pending" | "advancing" | "eliminated" | "winner";
 };
 
@@ -73,7 +76,7 @@ export default function RaceTicketCompact({
           </div>
           {typeof estimatedReward === "number" && estimatedReward > 0 && (
             <p className="-mt-1 text-sm font-semibold text-accent2">
-              Rewards: {estimatedReward.toFixed(2)} ARKEO
+              Rewards: {estimatedReward.toFixed(8)} ARKEO
             </p>
           )}
           {raceId && (
@@ -88,10 +91,13 @@ export default function RaceTicketCompact({
             selections.map((horse) => {
               const serviceLabel = horse.serviceType?.displayName ?? "RaceDay";
               const iconKey = horse.serviceType?.iconKey;
-              const ticketIcon = iconKey ? serviceIconPath(iconKey) : null;
-              const visual = horseStyle(horse.raceHorseId);
+              const ticketIcon = iconKey ? serviceIconPath(iconKey, serviceLabel) : null;
+              const visualSeed = horse.horseId ?? horse.raceHorseId;
+              const visual = horseStyle(visualSeed);
               const coatColor = visual.coatColor;
               const providerLabel = horse.providerMoniker?.trim() ?? null;
+              const roundLabel = typeof horse.roundNumber === "number" ? `Round ${horse.roundNumber}` : null;
+              const heatLabel = typeof horse.heatNumber === "number" ? `Heat ${horse.heatNumber}` : null;
               const horseStatus = horse.status ?? "pending";
               const showStatusIcon = horseStatus !== "pending";
               const isEliminated = horseStatus === "eliminated";
@@ -139,7 +145,7 @@ export default function RaceTicketCompact({
                             style={{ transform: "translate(-50%, -50%) translateX(-2px)" }}
                           >
                             <JerseyIcon
-                              seed={horse.raceHorseId}
+                              seed={visualSeed}
                               width={12}
                               height={20}
                               shape="square"
@@ -186,10 +192,28 @@ export default function RaceTicketCompact({
                       <p className="text-[10px] uppercase tracking-[0.2em] text-slate">
                         {serviceLabel}
                       </p>
-                      {providerLabel && (
-                        <span className="mt-1 inline-flex rounded-full bg-accent2/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-accent2">
-                          {providerLabel}
-                        </span>
+                      {(providerLabel || roundLabel || heatLabel) && (
+                        <div className="mt-1 flex flex-col items-start gap-1">
+                          {providerLabel && (
+                            <span className="inline-flex rounded-full bg-midnight/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-midnight">
+                              {providerLabel}
+                            </span>
+                          )}
+                          {(roundLabel || heatLabel) && (
+                            <div className="flex flex-wrap items-center gap-1">
+                              {roundLabel && (
+                                <span className="inline-flex rounded-full bg-accent2/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-accent2">
+                                  {roundLabel}
+                                </span>
+                              )}
+                              {heatLabel && (
+                                <span className="inline-flex rounded-full bg-accent2/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-accent2">
+                                  {heatLabel}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>

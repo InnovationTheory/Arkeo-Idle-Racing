@@ -328,9 +328,12 @@ router.get(
         payouts: {
           select: {
             userId: true,
+            raceDayHorseId: true,
             paidAt: true,
             txHash: true,
-            errorMessage: true
+            errorMessage: true,
+            totalReward: true,
+            breakdownJson: true
           }
         }
       }
@@ -399,20 +402,27 @@ router.get(
       }
     }
 
-    // Calculate reward per selection for each tier
-    const rewardPerSelectionPerRound: Record<number, number> = {};
-    for (const round of [2, 3]) {
-      const count = selectionsPerRound[round];
-      rewardPerSelectionPerRound[round] = count > 0
-        ? (POOL_SIZE * ROUND_ALLOCATIONS[round]) / count
-        : 0;
-    }
-    const rewardPerPlacement: Record<number, number> = {};
-    for (const placement of [1, 2, 3]) {
-      const count = selectionsPerPlacement[placement];
-      rewardPerPlacement[placement] = count > 0
-        ? (POOL_SIZE * PLACEMENT_ALLOCATIONS[placement]) / count
-        : 0;
+    // Map persisted payouts for exact (non-estimated) rewards
+    type RoundRewardEntry = { round: number | string; reward: number; label: string };
+    const payoutBySelection = new Map<string, { totalReward: number; roundRewards: RoundRewardEntry[] }>();
+    for (const payout of raceDay.payouts) {
+      const rawRoundRewards = (payout.breakdownJson as { roundRewards?: unknown })?.roundRewards;
+      const roundRewards = Array.isArray(rawRoundRewards)
+        ? rawRoundRewards
+            .map((entry) => {
+              if (!entry || typeof entry !== "object") return null;
+              const reward = (entry as { reward?: unknown }).reward;
+              const label = (entry as { label?: unknown }).label;
+              const round = (entry as { round?: unknown }).round;
+              if (typeof reward !== "number" || typeof label !== "string") return null;
+              return { reward, label, round: round as number | string };
+            })
+            .filter((entry): entry is RoundRewardEntry => !!entry)
+        : [];
+      payoutBySelection.set(`${payout.userId}:${payout.raceDayHorseId}`, {
+        totalReward: payout.totalReward,
+        roundRewards
+      });
     }
 
     // Group selections by user and calculate rewards
@@ -439,33 +449,9 @@ router.get(
       const horse = selection.raceDayHorse;
       const isEliminated = horse.eliminatedRound !== null;
 
-      // Calculate reward for this selection with per-round breakdown
-      let selectionReward = 0;
-      const roundRewards: Array<{ round: number | string; reward: number; label: string }> = [];
-
-      // Check winning circle first (highest value)
-      if (isInWinningCircle(horse.finalPlacement)) {
-        const placementLabels: Record<number, string> = { 1: "1st Place", 2: "2nd Place", 3: "3rd Place" };
-        const placementReward = rewardPerPlacement[horse.finalPlacement!];
-        roundRewards.push({
-          round: "final",
-          reward: placementReward,
-          label: placementLabels[horse.finalPlacement!] || `${horse.finalPlacement}th Place`
-        });
-        selectionReward += placementReward;
-      }
-
-      // Then rounds in descending order (3, 2) - Round 4 rewards are via placements only
-      for (const round of [3, 2]) {
-        if (advancedToRound(horse.eliminatedRound, round)) {
-          roundRewards.push({
-            round,
-            reward: rewardPerSelectionPerRound[round],
-            label: `Round ${round}`
-          });
-          selectionReward += rewardPerSelectionPerRound[round];
-        }
-      }
+      const payoutInfo = payoutBySelection.get(`${selection.user.id}:${horse.id}`);
+      const selectionReward = payoutInfo?.totalReward ?? 0;
+      const roundRewards = payoutInfo?.roundRewards ?? [];
 
       const entry = {
         raceDayHorseId: horse.id,
@@ -508,6 +494,7 @@ router.get(
     }
 
     // Sort users by estimated reward descending, then by top placement
+    const arkeoMultiplier = 10 ** config.arkeoDecimals;
     const players = Array.from(userMap.values())
       .map((player) => {
         const advancingCount = player.selections.filter((s) => !s.eliminated).length;
@@ -527,11 +514,15 @@ router.get(
             : player.walletAddress
               ? "pending"
               : "no_wallet";
+        const payoutTotal = Math.floor(player.estimatedReward * arkeoMultiplier) / arkeoMultiplier;
+        const paidReward = paymentStatus === "paid" ? payoutTotal : null;
 
         return {
           ...player,
           advancingCount,
           topPlacement,
+          estimatedReward: payoutTotal,
+          paidReward,
           paymentStatus,
           paidAt: paymentInfo?.paidAt ?? null,
           txHash: paymentInfo?.txHash ?? null

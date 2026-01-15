@@ -29,6 +29,7 @@ export function useWalletState() {
   const [walletSelectOpen, setWalletSelectOpen] = useState(false);
   const [connectingType, setConnectingType] = useState<WalletType | null>(null);
   const [nickname, setNickname] = useState("");
+  const [savedNickname, setSavedNickname] = useState("");
   const [isNicknameEditing, setIsNicknameEditing] = useState(true);
   const [walletMessage, setWalletMessage] = useState<string | null>(null);
   const [nicknameMessage, setNicknameMessage] = useState<string | null>(null);
@@ -44,9 +45,11 @@ export function useWalletState() {
         setRaceCredits(me.balance);
         if (me.nickname) {
           setNickname(me.nickname);
+          setSavedNickname(me.nickname);
           setIsNicknameEditing(false);
           setNicknameMessage(null);
         } else {
+          setSavedNickname("");
           setIsNicknameEditing(true);
         }
         if (me.walletAddress) {
@@ -108,8 +111,10 @@ export function useWalletState() {
       }
       if (response.nickname) {
         setNickname(response.nickname);
+        setSavedNickname(response.nickname);
         setIsNicknameEditing(false);
       } else {
+        setSavedNickname("");
         setIsNicknameEditing(true);
       }
       setWalletMessage("Wallet linked.");
@@ -166,6 +171,7 @@ export function useWalletState() {
       setWalletBalance(null);
       setWalletType(null);
       setNickname("");
+      setSavedNickname("");
       setIsNicknameEditing(true);
       setRaceCredits(null);
       setWalletMessage("Wallet disconnected.");
@@ -184,6 +190,7 @@ export function useWalletState() {
         nickname
       });
       setNickname(response.nickname);
+      setSavedNickname(response.nickname);
       setIsNicknameEditing(false);
       setNicknameMessage("Nickname saved.");
     } catch (error: any) {
@@ -215,6 +222,13 @@ export function useWalletState() {
     void saveNickname();
   }, [nicknameSaving, isNicknameEditing, saveNickname]);
 
+  const cancelNicknameEdit = useCallback(() => {
+    if (!isNicknameEditing) return;
+    setNickname(savedNickname);
+    setIsNicknameEditing(false);
+    setNicknameMessage(null);
+  }, [isNicknameEditing, savedNickname]);
+
   const openWalletSelect = useCallback(() => {
     setWalletSelectOpen(true);
     setWalletMessage(null);
@@ -243,6 +257,7 @@ export function useWalletState() {
     disconnectWallet,
     openWalletSelect,
     closeWalletSelect,
-    handleNicknameAction
+    handleNicknameAction,
+    cancelNicknameEdit
   };
 }

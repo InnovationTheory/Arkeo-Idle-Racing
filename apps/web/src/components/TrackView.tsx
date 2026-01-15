@@ -16,6 +16,7 @@ function formatOdds(odds: number | null | undefined): string {
 
 type TrackHorse = {
   raceHorseId: string;
+  horseId?: string;
   displayName: string;
   position: number;
   rank?: number;
@@ -30,6 +31,7 @@ type TrackHorse = {
   card?: {
     horse: {
       raceHorseId: string;
+      horseId?: string;
       displayName: string;
       handicapTier: string;
       formScore: number;
@@ -188,7 +190,7 @@ export default function TrackView({
           const coinInnerSize = COIN_SIZE * 0.92;
           const jerseyX = x - 3 - TILE_WIDTH / 2;
           const jerseyY = horseY + HORSE_SIZE / 2 - TILE_HEIGHT / 2;
-          const tokenIconPath = serviceIconPath(horse.serviceIconKey ?? horse.serviceName);
+          const tokenIconPath = serviceIconPath(horse.serviceIconKey, horse.serviceName);
           const tokenLabel = horse.serviceName?.slice(0, 3).toUpperCase() ?? "";
           const percentLabel = `${clampedPosition.toFixed(1)}%`;
           const rankValue =
@@ -196,7 +198,8 @@ export default function TrackView({
           const showRank = clampedPosition >= 100 && typeof rankValue === "number";
           const endLabel = showRank ? formatOrdinal(rankValue ?? 0) : percentLabel;
           const serviceLabel = horse.serviceName?.toUpperCase() ?? "";
-          const visual = horseStyle(horse.raceHorseId);
+          const visualSeed = horse.horseId ?? horse.raceHorseId;
+          const visual = horseStyle(visualSeed);
           const numberFill = horse.jerseyColor ?? "#FAF6F1";
           const numberText = horse.jerseyColor ? contrastColor(horse.jerseyColor) : "#1E1E1E";
           const slotLabel = horse.card?.slotLabel;
@@ -363,8 +366,8 @@ export default function TrackView({
                   </text>
                 )}
               </g>
-              <JerseyIcon
-                seed={horse.raceHorseId}
+            <JerseyIcon
+              seed={visualSeed}
                 width={TILE_WIDTH}
                 height={TILE_HEIGHT}
                 shape="square"

@@ -137,10 +137,12 @@ export default function Race() {
   // Store previous race's horses when race finishes (for "horses leaving" display)
   const [previousHorses, setPreviousHorses] = useState<typeof displayHorses | null>(null);
   const [previousFinishRanks, setPreviousFinishRanks] = useState<Map<string, number> | null>(null);
+  const [previousHeatInfo, setPreviousHeatInfo] = useState<{ round: number | null; heat: number | null } | null>(null);
   const prevRaceIdRef = React.useRef<string | null>(null);
 
   // Store upcoming race's horses for "horses entering" display
   const [upcomingHorses, setUpcomingHorses] = useState<typeof displayHorses | null>(null);
+  const [upcomingHeatInfo, setUpcomingHeatInfo] = useState<{ round: number | null; heat: number | null } | null>(null);
   const upcomingRaceIdRef = React.useRef<string | null>(null);
 
   // Find the next scheduled heat's raceId for prefetching upcoming horses
@@ -168,9 +170,26 @@ export default function Race() {
     if (currentStatus === "finished" && currentRaceId && currentRaceId !== prevRaceIdRef.current) {
       setPreviousHorses([...displayHorses]);
       setPreviousFinishRanks(new Map(finishRanks));
+      setPreviousHeatInfo({
+        round: displayRace?.racedayLevel ?? race?.racedayLevel ?? currentHeatInfo?.round ?? null,
+        heat: displayRace?.racedayHeatNumber ?? race?.racedayHeatNumber ?? currentHeatInfo?.heat ?? null
+      });
       prevRaceIdRef.current = currentRaceId;
     }
-  }, [displayRace?.raceId, displayRace?.status, race?.raceId, race?.status, displayHorses, finishRanks]);
+  }, [
+    displayRace?.raceId,
+    displayRace?.status,
+    race?.raceId,
+    race?.status,
+    displayHorses,
+    finishRanks,
+    displayRace?.racedayLevel,
+    displayRace?.racedayHeatNumber,
+    race?.racedayLevel,
+    race?.racedayHeatNumber,
+    currentHeatInfo?.round,
+    currentHeatInfo?.heat
+  ]);
 
   // Ensure previous race horses are captured during buffer (even if displayRace already advanced)
   useEffect(() => {
@@ -199,6 +218,10 @@ export default function Race() {
     if (displayRace?.raceId === finishedRaceId && displayHorses.length > 0) {
       setPreviousHorses([...displayHorses]);
       setRanksFromPlacement(displayHorses);
+      setPreviousHeatInfo({
+        round: displayRace?.racedayLevel ?? currentHeatInfo?.round ?? null,
+        heat: displayRace?.racedayHeatNumber ?? currentHeatInfo?.heat ?? null
+      });
       prevRaceIdRef.current = finishedRaceId;
       return;
     }
@@ -211,6 +234,10 @@ export default function Race() {
         if (raceData?.horses?.length) {
           setPreviousHorses(raceData.horses);
           setRanksFromPlacement(raceData.horses);
+          setPreviousHeatInfo({
+            round: raceData.racedayLevel ?? currentHeatInfo?.round ?? null,
+            heat: raceData.racedayHeatNumber ?? currentHeatInfo?.heat ?? null
+          });
           prevRaceIdRef.current = finishedRaceId;
         }
       } catch {
@@ -228,7 +255,11 @@ export default function Race() {
     displayRace?.raceId,
     displayHorses,
     previousHorses?.length,
-    finishRanks
+    finishRanks,
+    displayRace?.racedayLevel,
+    displayRace?.racedayHeatNumber,
+    currentHeatInfo?.round,
+    currentHeatInfo?.heat
   ]);
 
   // Calculate buffer event based on timing
@@ -295,6 +326,10 @@ export default function Race() {
         if (cancelled) return;
         if (raceData?.horses) {
           setUpcomingHorses(raceData.horses);
+          setUpcomingHeatInfo({
+            round: raceData.racedayLevel ?? null,
+            heat: raceData.racedayHeatNumber ?? null
+          });
           upcomingRaceIdRef.current = scheduledHeatRaceId;
         }
       } catch {
@@ -315,6 +350,10 @@ export default function Race() {
       return;
     }
     setUpcomingHorses(nextHeatRace.horses);
+    setUpcomingHeatInfo({
+      round: nextHeatRace.racedayLevel ?? null,
+      heat: nextHeatRace.racedayHeatNumber ?? null
+    });
     upcomingRaceIdRef.current = nextHeatRace.raceId;
   }, [nextHeatRace]);
 
@@ -322,6 +361,7 @@ export default function Race() {
   useEffect(() => {
     if (displayRace?.raceId && displayRace.raceId === upcomingRaceIdRef.current) {
       setUpcomingHorses(null);
+      setUpcomingHeatInfo(null);
       upcomingRaceIdRef.current = null;
     }
   }, [displayRace?.raceId]);
@@ -383,6 +423,133 @@ export default function Race() {
     return map;
   }, [selections, displayHorses]);
 
+  const trackViewData = useMemo(() => {
+    // During "horses_leaving" phase, show the previous race's horses at finish positions
+    const isEnteringPhase = bufferEvent?.eventType === "horses_entering";
+    const upcomingFromDisplay =
+      isEnteringPhase &&
+      currentHeatInfo?.raceId &&
+      displayRace?.raceId === currentHeatInfo.raceId &&
+      displayHorses.length > 0;
+    const hasUpcoming = Boolean(upcomingHorses?.length) || upcomingFromDisplay;
+    const fallbackToLeaving = isEnteringPhase && !hasUpcoming && previousHorses?.length;
+    const isLeavingPhase =
+      (bufferEvent?.eventType === "horses_leaving" || fallbackToLeaving) && Boolean(previousHorses?.length);
+    const showEntering = isEnteringPhase && hasUpcoming;
+    const enteringHorses = upcomingHorses?.length
+      ? upcomingHorses
+      : upcomingFromDisplay
+        ? displayHorses
+        : null;
+
+    // Determine which horses to render based on buffer phase
+    // - Leaving phase: show previous race's horses at finish line
+    // - Entering phase: show upcoming race's horses at starting line
+    // - Otherwise: show current displayHorses
+    const horsesToRender = showEntering && enteringHorses
+      ? enteringHorses
+      : isLeavingPhase && previousHorses?.length
+        ? previousHorses
+        : displayHorses;
+    const ranksToUse = isLeavingPhase && previousFinishRanks ? previousFinishRanks : finishRanks;
+    const currentRace = displayRace ?? race;
+    const trackViewLevel = showEntering
+      ? (upcomingHeatInfo?.round ?? currentHeatInfo?.round ?? currentRace?.racedayLevel ?? null)
+      : isLeavingPhase
+        ? (previousHeatInfo?.round ?? currentRace?.racedayLevel ?? currentHeatInfo?.round ?? null)
+        : (currentHeatInfo?.round ?? currentRace?.racedayLevel ?? null);
+
+    return {
+      racedayLevel: trackViewLevel,
+      horses: horsesToRender.map((horse, index) => {
+        const baseline = prepBaselineByHorseId.get(horse.raceHorseId);
+        const liveLatency = horse.metrics?.latencyMs;
+        const deltaMs =
+          typeof baseline === "number" && typeof liveLatency === "number"
+            ? baseline - liveLatency
+            : null;
+        const prepProbes = prepProbesByHorse[horse.raceHorseId];
+        const labelRound = currentHeatInfo?.round ?? currentRace?.racedayLevel ?? null;
+        const labelHeat = currentHeatInfo?.heat ?? currentRace?.racedayHeatNumber ?? null;
+        const laneNumber = horse.lane ?? index + 1;
+        const slotLabel =
+          labelRound && labelHeat
+            ? buildRaceDaySlotLabel(labelRound, labelHeat, laneNumber)
+            : undefined;
+        const selectedBy = selectedByMap.get(horse.raceHorseId) ?? [];
+
+        // During "horses_entering" phase, reset positions to starting line
+        // During "horses_leaving" phase, show horses at finish (position 100)
+        const displayPosition = showEntering
+          ? 0
+          : isLeavingPhase
+            ? 100
+            : (horse.position ?? 0);
+
+        const jerseyColor =
+          jerseyColors.get(horse.raceHorseId) ??
+          (horse.horseId ? horseStyle(horse.horseId).patternBaseColor : undefined);
+
+        return {
+          raceHorseId: horse.raceHorseId,
+          horseId: horse.horseId,
+          displayName: horse.displayName,
+          position: displayPosition,
+          rank: showEntering ? undefined : rankMap.get(horse.raceHorseId),
+          finishRank: showEntering ? undefined : ranksToUse.get(horse.raceHorseId),
+          serviceIconKey: horse.serviceType?.iconKey,
+          serviceName: horse.serviceType?.displayName,
+          jerseyColor,
+          latencyDeltaMs: deltaMs,
+          liveLatencyMs: typeof liveLatency === "number" ? liveLatency : null,
+          errorType: horse.metrics?.errorType ?? null,
+          selectionCount: selectedBy.length,
+          card: {
+            horse: {
+              raceHorseId: horse.raceHorseId,
+              horseId: horse.horseId,
+              displayName: horse.displayName,
+              handicapTier: horse.handicapTier ?? "Light",
+              formScore: horse.formScore ?? 0,
+              difficultyMultiplier: horse.difficultyMultiplier ?? 1,
+              archetype: horse.archetype,
+              temperament: horse.temperament,
+              surfaceAffinity: horse.surfaceAffinity,
+              odds: horse.odds ?? null,
+              record: horse.record,
+              serviceType: horse.serviceType,
+              assignedProvider: horse.assignedProvider
+            },
+            prepProbes,
+            slotNumber: index + 1,
+            slotLabel,
+            jerseyColor,
+            selectedBy
+          }
+        };
+      })
+    };
+  }, [
+    bufferEvent?.eventType,
+    currentHeatInfo?.raceId,
+    currentHeatInfo?.round,
+    currentHeatInfo?.heat,
+    displayRace,
+    race,
+    displayHorses,
+    previousHorses,
+    upcomingHorses,
+    previousFinishRanks,
+    finishRanks,
+    prepBaselineByHorseId,
+    prepProbesByHorse,
+    jerseyColors,
+    rankMap,
+    selectedByMap,
+    previousHeatInfo,
+    upcomingHeatInfo
+  ]);
+
   // Only show TrackView during running/finished phases, not during polling/picking
   const isPollingOrPicking = racedayStatus === "polling" || racedayStatus === "picking";
 
@@ -404,105 +571,9 @@ export default function Race() {
       </div>
     ) : (
       <TrackView
-        horses={(() => {
-          // During "horses_leaving" phase, show the previous race's horses at finish positions
-          const isEnteringPhase = bufferEvent?.eventType === "horses_entering";
-          const upcomingFromDisplay =
-            isEnteringPhase &&
-            currentHeatInfo?.raceId &&
-            displayRace?.raceId === currentHeatInfo.raceId &&
-            displayHorses.length > 0;
-          const hasUpcoming = Boolean(upcomingHorses?.length) || upcomingFromDisplay;
-          const fallbackToLeaving = isEnteringPhase && !hasUpcoming && previousHorses?.length;
-          const isLeavingPhase =
-            (bufferEvent?.eventType === "horses_leaving" || fallbackToLeaving) && Boolean(previousHorses?.length);
-          const showEntering = isEnteringPhase && hasUpcoming;
-          const enteringHorses = upcomingHorses?.length
-            ? upcomingHorses
-            : upcomingFromDisplay
-              ? displayHorses
-              : null;
-
-          // Determine which horses to render based on buffer phase
-          // - Leaving phase: show previous race's horses at finish line
-          // - Entering phase: show upcoming race's horses at starting line
-          // - Otherwise: show current displayHorses
-          const horsesToRender = showEntering && enteringHorses
-            ? enteringHorses
-            : isLeavingPhase && previousHorses?.length
-              ? previousHorses
-              : displayHorses;
-          const ranksToUse = isLeavingPhase && previousFinishRanks ? previousFinishRanks : finishRanks;
-
-          return horsesToRender.map((horse, index) => {
-            const baseline = prepBaselineByHorseId.get(horse.raceHorseId);
-            const liveLatency = horse.metrics?.latencyMs;
-            const deltaMs =
-              typeof baseline === "number" && typeof liveLatency === "number"
-                ? baseline - liveLatency
-                : null;
-            const prepProbes = prepProbesByHorse[horse.raceHorseId];
-            const currentRace = displayRace ?? race;
-            const isRaceDay = typeof currentRace?.racedayLevel === "number";
-            const laneNumber = horse.lane ?? index + 1;
-            const labelRound = currentHeatInfo?.round ?? currentRace?.racedayLevel ?? null;
-            const labelHeat = currentHeatInfo?.heat ?? currentRace?.racedayHeatNumber ?? null;
-            const slotLabel = isRaceDay && labelRound && labelHeat
-              ? buildRaceDaySlotLabel(labelRound, labelHeat, laneNumber)
-              : undefined;
-            const selectedBy = selectedByMap.get(horse.raceHorseId) ?? [];
-
-            // During "horses_entering" phase, reset positions to starting line
-            // During "horses_leaving" phase, show horses at finish (position 100)
-            const displayPosition = showEntering
-              ? 0
-              : isLeavingPhase
-                ? 100
-                : (horse.position ?? 0);
-
-            const jerseyColor =
-              jerseyColors.get(horse.raceHorseId) ??
-              (horse.horseId ? horseStyle(horse.horseId).patternBaseColor : undefined);
-
-            return {
-              raceHorseId: horse.raceHorseId,
-              displayName: horse.displayName,
-              position: displayPosition,
-              rank: showEntering ? undefined : rankMap.get(horse.raceHorseId),
-              finishRank: showEntering ? undefined : ranksToUse.get(horse.raceHorseId),
-              serviceIconKey: horse.serviceType?.iconKey,
-              serviceName: horse.serviceType?.displayName,
-              jerseyColor,
-              latencyDeltaMs: deltaMs,
-              liveLatencyMs: typeof liveLatency === "number" ? liveLatency : null,
-              errorType: horse.metrics?.errorType ?? null,
-              selectionCount: selectedBy.length,
-              card: {
-                horse: {
-                  raceHorseId: horse.raceHorseId,
-                  displayName: horse.displayName,
-                  handicapTier: horse.handicapTier ?? "Light",
-                  formScore: horse.formScore ?? 0,
-                  difficultyMultiplier: horse.difficultyMultiplier ?? 1,
-                  archetype: horse.archetype,
-                  temperament: horse.temperament,
-                  surfaceAffinity: horse.surfaceAffinity,
-                  odds: horse.odds ?? null,
-                  record: horse.record,
-                  serviceType: horse.serviceType,
-                  assignedProvider: horse.assignedProvider
-                },
-                prepProbes,
-                slotNumber: index + 1,
-                slotLabel,
-                jerseyColor,
-                selectedBy
-              }
-            };
-          });
-        })()}
+        horses={trackViewData.horses}
         raceStatus={(displayRace ?? race)?.status}
-        racedayLevel={(displayRace ?? race)?.racedayLevel ?? null}
+        racedayLevel={trackViewData.racedayLevel}
         event={bufferEvent ?? currentEvent}
       />
     );

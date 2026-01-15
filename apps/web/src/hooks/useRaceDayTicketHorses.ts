@@ -59,6 +59,8 @@ type HorseDetail = {
 type LeaderboardPlayer = {
   walletAddress: string | null;
   estimatedReward: number;
+  paidReward?: number | null;
+  paymentStatus?: "paid" | "pending" | "failed" | "no_wallet";
 };
 
 type TicketHorse = {
@@ -71,6 +73,8 @@ type TicketHorse = {
   jerseyColor?: string;
   slotNumber?: number;
   slotLabel?: string;
+  roundNumber?: number;
+  heatNumber?: number;
   status?: "pending" | "advancing" | "eliminated" | "winner";
 };
 
@@ -170,7 +174,10 @@ export function useRaceDayTicketHorses(walletAddress?: string | null, raceDayId?
         );
         if (!mounted) return;
         const myEntry = data.players?.find((p) => p.walletAddress === walletAddress);
-        setEstimatedReward(myEntry?.estimatedReward ?? 0);
+        const reward = myEntry?.paymentStatus === "paid" && typeof myEntry.paidReward === "number"
+          ? myEntry.paidReward
+          : myEntry?.estimatedReward ?? 0;
+        setEstimatedReward(reward);
       } catch {
         if (mounted) {
           setEstimatedReward(0);
@@ -318,11 +325,13 @@ export function useRaceDayTicketHorses(walletAddress?: string | null, raceDayId?
       .map((id) => {
         const entry = raceDayHorseMap.get(id);
         if (!entry) return null;
-        const visual = horseStyle(entry.raceDayHorseId);
+        const visual = horseStyle(entry.horseId);
         const slotMeta = raceDaySlotMeta.get(entry.raceDayHorseId);
         const slotLabel = slotMeta
           ? buildRaceDaySlotLabel(slotMeta.roundNumber, slotMeta.heatNumber, slotMeta.slotNumber)
           : undefined;
+        const roundNumber = slotMeta?.roundNumber;
+        const heatNumber = slotMeta?.heatNumber;
 
         let status: TicketHorse["status"] = "pending";
         if (entry.eliminatedRound !== null) {
@@ -350,6 +359,8 @@ export function useRaceDayTicketHorses(walletAddress?: string | null, raceDayId?
           jerseyColor: visual.patternBaseColor,
           slotNumber: entry.seedOrder,
           slotLabel,
+          roundNumber,
+          heatNumber,
           status
         } as TicketHorse;
       })

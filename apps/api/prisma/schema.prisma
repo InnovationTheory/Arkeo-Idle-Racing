@@ -245,11 +245,15 @@ model RaceDayHorse {
   archetype       RaceArchetype?
   temperament     Temperament?
   surfaceAffinity SurfaceAffinity?
+  serviceTypeId   String?
+  assignedProviderId String?
   eliminatedRound Int?
   eliminatedHeat  Int?
   finalPlacement  Int?
   raceDay         RaceDay     @relation(fields: [raceDayId], references: [id])
   horse           Horse       @relation(fields: [horseId], references: [id])
+  serviceType     ServiceType? @relation(fields: [serviceTypeId], references: [id])
+  assignedProvider Provider? @relation(fields: [assignedProviderId], references: [id])
   selections      RaceDaySelection[]
   payouts         RaceDayPayout[]
 

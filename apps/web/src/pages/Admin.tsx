@@ -35,6 +35,7 @@ export default function Admin() {
   const [adminKey, setAdminKey] = useState(() => localStorage.getItem("adminKey") || "");
   const [racedays, setRacedays] = useState<RaceDayInfo[]>([]);
   const [hotWallet, setHotWallet] = useState<HotWalletInfo | null>(null);
+  const [adminStatus, setAdminStatus] = useState<"unknown" | "valid" | "invalid">("unknown");
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -60,7 +61,11 @@ export default function Admin() {
   };
 
   const fetchHotWallet = async () => {
-    if (!adminKey) return;
+    if (!adminKey) {
+      setHotWallet(null);
+      setAdminStatus("unknown");
+      return;
+    }
     try {
       const res = await fetch("/api/admin/hot-wallet", {
         headers: { "X-Admin-Key": adminKey }
@@ -68,9 +73,14 @@ export default function Admin() {
       if (res.ok) {
         const data = await res.json();
         setHotWallet(data);
+        setAdminStatus("valid");
+      } else {
+        setHotWallet(null);
+        setAdminStatus("invalid");
       }
     } catch {
-      // Silently fail - wallet info is optional
+      setHotWallet(null);
+      setAdminStatus("invalid");
     }
   };
 
@@ -157,191 +167,203 @@ export default function Admin() {
         </div>
       </section>
 
-      {/* Hot Wallet Balance */}
-      <section className="surface rounded-2xl p-4">
-        <h2 className="text-sm uppercase tracking-[0.2em] text-slate mb-3">Hot Wallet (Rewards)</h2>
-        {hotWallet ? (
-          <div className="flex flex-col gap-2">
-            {hotWallet.address ? (
-              <>
-                <p className="font-mono text-xs text-slate break-all">{hotWallet.address}</p>
-                {hotWallet.balance ? (
-                  <p className="text-2xl font-bold text-accent">
-                    {hotWallet.balance.displayAmount} {hotWallet.balance.ticker}
-                  </p>
+      {adminStatus === "valid" ? (
+        <>
+          {/* Hot Wallet Balance */}
+          <section className="surface rounded-2xl p-4">
+            <h2 className="text-sm uppercase tracking-[0.2em] text-slate mb-3">Hot Wallet (Rewards)</h2>
+            {hotWallet ? (
+              <div className="flex flex-col gap-2">
+                {hotWallet.address ? (
+                  <>
+                    <p className="font-mono text-xs text-slate break-all">{hotWallet.address}</p>
+                    {hotWallet.balance ? (
+                      <p className="text-2xl font-bold text-accent">
+                        {hotWallet.balance.displayAmount} {hotWallet.balance.ticker}
+                      </p>
+                    ) : (
+                      <p className="text-warning">{hotWallet.error || "Balance unavailable"}</p>
+                    )}
+                  </>
                 ) : (
-                  <p className="text-warning">{hotWallet.error || "Balance unavailable"}</p>
+                  <p className="text-slate">Hot wallet not configured</p>
                 )}
-              </>
+              </div>
             ) : (
-              <p className="text-slate">Hot wallet not configured</p>
+              <p className="text-slate">Enter admin key to view wallet</p>
             )}
-          </div>
-        ) : (
-          <p className="text-slate">Enter admin key to view wallet</p>
-        )}
-      </section>
+          </section>
 
-      {/* RaceDays */}
-      <section className="surface rounded-2xl p-4">
-        {(() => {
-          // Block creation when any raceday is active (not canceled or complete)
-          const activeRaceday = racedays.find((rd) =>
-            !["canceled", "complete"].includes(rd.status)
-          );
-          const canCreate = !activeRaceday;
-          return (
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm uppercase tracking-[0.2em] text-slate">RaceDays</h2>
-              <div className="flex items-center gap-2">
-                {activeRaceday && (
-                  <span className="text-xs text-warning">Event in progress</span>
-                )}
+          {/* RaceDays */}
+          <section className="surface rounded-2xl p-4">
+            {(() => {
+              // Block creation when any raceday is active (not canceled or complete)
+              const activeRaceday = racedays.find((rd) =>
+                !["canceled", "complete"].includes(rd.status)
+              );
+              const canCreate = !activeRaceday;
+              return (
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm uppercase tracking-[0.2em] text-slate">RaceDays</h2>
+                  <div className="flex items-center gap-2">
+                    {activeRaceday && (
+                      <span className="text-xs text-warning">Event in progress</span>
+                    )}
+                    <button
+                      onClick={() => setShowCreateForm(!showCreateForm)}
+                      disabled={loading || !canCreate}
+                      className={`rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 ${
+                        showCreateForm
+                          ? "bg-slate/20 text-slate"
+                          : "bg-accent2 text-white"
+                      }`}
+                    >
+                      {showCreateForm ? "Cancel" : "New RaceDay"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Create RaceDay Form */}
+            {showCreateForm && (
+              <div className="mb-4 rounded-xl bg-panel/50 p-4 border border-midnight/10">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div className="md:col-span-2">
+                    <label className="block text-xs uppercase tracking-wider text-slate mb-1">
+                      Name
+                    </label>
+                    <input
+                      type="text"
+                      value={createForm.name}
+                      onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+                      className="w-full rounded-lg border border-midnight/20 bg-white px-3 py-2 text-ink"
+                      placeholder="RaceDay Name (e.g., Holiday Special)"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-slate mb-1">
+                      ARKEO Reward Pool
+                    </label>
+                    <input
+                      type="number"
+                      value={createForm.poolCredits}
+                      onChange={(e) => setCreateForm({ ...createForm, poolCredits: parseInt(e.target.value) || 5 })}
+                      min={1}
+                      max={10000}
+                      className="w-full rounded-lg border border-midnight/20 bg-white px-3 py-2 text-ink"
+                    />
+                    <p className="text-xs text-slate mt-1">Total ARKEO to distribute</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-slate mb-1">
+                      Pick Window (seconds)
+                    </label>
+                    <input
+                      type="number"
+                      value={createForm.pickWindowSecs}
+                      onChange={(e) => setCreateForm({ ...createForm, pickWindowSecs: parseInt(e.target.value) || 900 })}
+                      min={5}
+                      max={900}
+                      className="w-full rounded-lg border border-midnight/20 bg-white px-3 py-2 text-ink"
+                    />
+                    <p className="text-xs text-slate mt-1">{Math.floor(createForm.pickWindowSecs / 60)}m {createForm.pickWindowSecs % 60}s</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-slate mb-1">
+                      Buffer Between Heats (seconds)
+                    </label>
+                    <input
+                      type="number"
+                      value={createForm.bufferSecs}
+                      onChange={(e) => setCreateForm({ ...createForm, bufferSecs: parseInt(e.target.value) || 30 })}
+                      min={0}
+                      max={120}
+                      className="w-full rounded-lg border border-midnight/20 bg-white px-3 py-2 text-ink"
+                    />
+                  </div>
+                </div>
                 <button
-                  onClick={() => setShowCreateForm(!showCreateForm)}
-                  disabled={loading || !canCreate}
-                  className={`rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 ${
-                    showCreateForm
-                      ? "bg-slate/20 text-slate"
-                      : "bg-accent2 text-white"
-                  }`}
+                  onClick={createRaceday}
+                  disabled={loading || !createForm.name}
+                  className="w-full rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
-                  {showCreateForm ? "Cancel" : "New RaceDay"}
+                  Create RaceDay
                 </button>
               </div>
-            </div>
-          );
-        })()}
-
-        {/* Create RaceDay Form */}
-        {showCreateForm && (
-          <div className="mb-4 rounded-xl bg-panel/50 p-4 border border-midnight/10">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <div className="md:col-span-2">
-                <label className="block text-xs uppercase tracking-wider text-slate mb-1">
-                  Name
-                </label>
-                <input
-                  type="text"
-                  value={createForm.name}
-                  onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
-                  className="w-full rounded-lg border border-midnight/20 bg-white px-3 py-2 text-ink"
-                  placeholder="RaceDay Name (e.g., Holiday Special)"
-                />
-              </div>
-              <div>
-                <label className="block text-xs uppercase tracking-wider text-slate mb-1">
-                  ARKEO Reward Pool
-                </label>
-                <input
-                  type="number"
-                  value={createForm.poolCredits}
-                  onChange={(e) => setCreateForm({ ...createForm, poolCredits: parseInt(e.target.value) || 5 })}
-                  min={1}
-                  max={10000}
-                  className="w-full rounded-lg border border-midnight/20 bg-white px-3 py-2 text-ink"
-                />
-                <p className="text-xs text-slate mt-1">Total ARKEO to distribute</p>
-              </div>
-              <div>
-                <label className="block text-xs uppercase tracking-wider text-slate mb-1">
-                  Pick Window (seconds)
-                </label>
-                <input
-                  type="number"
-                  value={createForm.pickWindowSecs}
-                  onChange={(e) => setCreateForm({ ...createForm, pickWindowSecs: parseInt(e.target.value) || 900 })}
-                  min={5}
-                  max={900}
-                  className="w-full rounded-lg border border-midnight/20 bg-white px-3 py-2 text-ink"
-                />
-                <p className="text-xs text-slate mt-1">{Math.floor(createForm.pickWindowSecs / 60)}m {createForm.pickWindowSecs % 60}s</p>
-              </div>
-              <div>
-                <label className="block text-xs uppercase tracking-wider text-slate mb-1">
-                  Buffer Between Heats (seconds)
-                </label>
-                <input
-                  type="number"
-                  value={createForm.bufferSecs}
-                  onChange={(e) => setCreateForm({ ...createForm, bufferSecs: parseInt(e.target.value) || 30 })}
-                  min={0}
-                  max={120}
-                  className="w-full rounded-lg border border-midnight/20 bg-white px-3 py-2 text-ink"
-                />
-              </div>
-            </div>
-            <button
-              onClick={createRaceday}
-              disabled={loading || !createForm.name}
-              className="w-full rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              Create RaceDay
-            </button>
-          </div>
-        )}
-        {racedays.length === 0 ? (
-          <p className="text-slate">No racedays</p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {racedays.map((rd) => (
-              <div
-                key={rd.raceDayId}
-                className="flex items-center justify-between gap-6 rounded-xl bg-panel/50 px-5 py-4"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-ink">{rd.name}</p>
-                  <p className="text-xs text-slate font-mono truncate">{rd.raceDayId}</p>
-                </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-semibold uppercase ${
-                      rd.status === "running"
-                        ? "bg-accent/20 text-accent"
-                        : rd.status === "complete"
-                        ? "bg-green-600/20 text-green-600"
-                        : rd.status === "canceled"
-                        ? "bg-warning/20 text-warning"
-                        : rd.status === "scheduled"
-                        ? "bg-midnight/10 text-midnight"
-                        : "bg-slate/20 text-slate"
-                    }`}
+            )}
+            {racedays.length === 0 ? (
+              <p className="text-slate">No racedays</p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {racedays.map((rd) => (
+                  <div
+                    key={rd.raceDayId}
+                    className="flex items-center justify-between gap-6 rounded-xl bg-panel/50 px-5 py-4"
                   >
-                    {rd.status}
-                  </span>
-                  {rd.status === "scheduled" && (
-                    <button
-                      onClick={() => startRaceday(rd.raceDayId)}
-                      disabled={loading}
-                      className="rounded-lg bg-accent2 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
-                    >
-                      Start Event
-                    </button>
-                  )}
-                  {(rd.status === "running" || rd.status === "picking" || rd.status === "polling") && (
-                    <>
-                      <button
-                        onClick={() => resetRaceday(rd.raceDayId)}
-                        disabled={loading}
-                        className="rounded-lg bg-orange-500 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-ink">{rd.name}</p>
+                      <p className="text-xs text-slate font-mono truncate">{rd.raceDayId}</p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold uppercase ${
+                          rd.status === "running"
+                            ? "bg-accent/20 text-accent"
+                            : rd.status === "complete"
+                            ? "bg-green-600/20 text-green-600"
+                            : rd.status === "canceled"
+                            ? "bg-warning/20 text-warning"
+                            : rd.status === "scheduled"
+                            ? "bg-midnight/10 text-midnight"
+                            : "bg-slate/20 text-slate"
+                        }`}
                       >
-                        Reset Event
-                      </button>
-                      <button
-                        onClick={() => cancelRaceday(rd.raceDayId)}
-                        disabled={loading}
-                        className="rounded-lg bg-orange-500 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
-                      >
-                        Cancel Event
-                      </button>
-                    </>
-                  )}
-                </div>
+                        {rd.status}
+                      </span>
+                      {rd.status === "scheduled" && (
+                        <button
+                          onClick={() => startRaceday(rd.raceDayId)}
+                          disabled={loading}
+                          className="rounded-lg bg-accent2 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                        >
+                          Start Event
+                        </button>
+                      )}
+                      {(rd.status === "running" || rd.status === "picking" || rd.status === "polling") && (
+                        <>
+                          <button
+                            onClick={() => resetRaceday(rd.raceDayId)}
+                            disabled={loading}
+                            className="rounded-lg bg-orange-500 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                          >
+                            Reset Event
+                          </button>
+                          <button
+                            onClick={() => cancelRaceday(rd.raceDayId)}
+                            disabled={loading}
+                            className="rounded-lg bg-orange-500 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                          >
+                            Cancel Event
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-      </section>
+            )}
+          </section>
+        </>
+      ) : (
+        <section className="surface rounded-2xl p-4">
+          <p className="text-sm text-slate">
+            {adminStatus === "invalid"
+              ? "Admin key is invalid. Enter a valid key to unlock controls."
+              : "Enter an admin key to unlock controls."}
+          </p>
+        </section>
+      )}
 
     </div>
   );

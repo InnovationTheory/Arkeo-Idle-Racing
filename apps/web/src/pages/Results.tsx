@@ -8,11 +8,11 @@ import { useRaceDayTicketHorses } from "../hooks/useRaceDayTicketHorses";
 import HorseSilhouette from "../components/HorseSilhouette";
 import JerseyIcon from "../components/JerseyIcon";
 import { serviceIconPath } from "../utils/serviceIcons";
-import { buildRaceJerseyColors } from "../utils/raceColors";
 import { contrastColor, horseStyle } from "../utils/horseStyle";
 
 type RaceHorseEntry = {
   raceHorseId: string;
+  horseId: string;
   displayName: string;
   placement?: number | null;
   eliminatedAtTick?: number | null;
@@ -206,10 +206,10 @@ export default function Results() {
         {races.map((race) => {
           const labelTime = formatTime(race.endAt || race.startAt || race.createdAt);
           const raceHorses = Array.isArray(race.horses) ? race.horses : [];
-          const jerseyColors = buildRaceJerseyColors(
-            race.raceId,
-            raceHorses.map((horse) => horse.raceHorseId)
-          );
+          const jerseyColors = new Map<string, string>();
+          raceHorses.forEach((horse) => {
+            jerseyColors.set(horse.horseId, horseStyle(horse.horseId).patternBaseColor);
+          });
           const raceStatus = race.status ?? "unknown";
           const isRaceDay = typeof race.racedayLevel === "number";
           const racedayLevel = race.racedayLevel;
@@ -272,12 +272,12 @@ export default function Results() {
                             : raceStatus === "scheduled"
                               ? "Scheduled"
                               : "In progress";
-                    const visual = horseStyle(entry.raceHorseId);
-                    const jerseyColor = jerseyColors.get(entry.raceHorseId);
+                    const visual = horseStyle(entry.horseId);
+                    const jerseyColor = jerseyColors.get(entry.horseId);
                     const numberColor = jerseyColor ? contrastColor(jerseyColor) : "#1E1E1E";
                     const numberValue = index + 1;
                     const placementLabel = formatPlacement(entry.placement);
-                    const coinPath = serviceIconPath(entry.serviceType?.iconKey);
+                    const coinPath = serviceIconPath(entry.serviceType?.iconKey, entry.serviceType?.displayName);
                     const isTopFive =
                       raceStatus === "finished" &&
                       typeof entry.placement === "number" &&
@@ -338,7 +338,7 @@ export default function Results() {
                               style={{ transform: "translate(-50%, -50%) translateX(-3px)" }}
                             >
                               <JerseyIcon
-                                seed={entry.raceHorseId}
+                                seed={entry.horseId}
                                 width={tileWidth}
                                 height={tileHeight}
                                 shape="square"

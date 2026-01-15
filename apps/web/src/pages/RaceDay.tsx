@@ -116,6 +116,7 @@ type LeaderboardPlayer = {
   advancingCount: number;
   topPlacement: number;
   estimatedReward: number;
+  paidReward?: number | null;
   paymentStatus?: "paid" | "pending" | "failed" | "no_wallet";
   paidAt?: string | null;
   txHash?: string | null;
@@ -484,7 +485,8 @@ export default function RaceDay() {
             { label: "3rd Place", rank: 3, bgColor: "bg-[#CD7F32]", textColor: "text-white" }
           ].map((slot) => {
             const entry = finalPlacements.find((placement) => placement.placement === slot.rank);
-            const visual = entry?.raceDayHorseId ? horseStyle(entry.raceDayHorseId) : null;
+            const visualSeed = entry?.horse?.horseId ?? entry?.raceDayHorseId ?? null;
+            const visual = visualSeed ? horseStyle(visualSeed) : null;
             return (
               <div
                 key={slot.label}
@@ -506,7 +508,7 @@ export default function RaceDay() {
                           style={{ transform: "translate(-50%, -50%) translateX(-2px)" }}
                         >
                           <JerseyIcon
-                            seed={entry.name}
+                            seed={visualSeed ?? entry.name}
                             width={12}
                             height={22}
                             shape="square"
@@ -654,7 +656,12 @@ export default function RaceDay() {
                     )}
                     <div className="text-right">
                       <p className="text-lg font-bold text-accent2">
-                        {(player.estimatedReward ?? 0).toFixed(2)} ARKEO
+                        {(
+                          player.paymentStatus === "paid" && typeof player.paidReward === "number"
+                            ? player.paidReward
+                            : player.estimatedReward ?? 0
+                        ).toFixed(8)}{" "}
+                        ARKEO
                       </p>
                       <p className="text-[10px] uppercase tracking-[0.2em] text-slate">
                         Total Score
@@ -722,7 +729,7 @@ export default function RaceDay() {
                           }`}
                         >
                           {(selection.estimatedReward ?? 0) > 0
-                            ? `+${(selection.estimatedReward ?? 0).toFixed(2)}`
+                            ? `+${(selection.estimatedReward ?? 0).toFixed(8)}`
                             : "0.00"}
                         </span>
                       </div>
@@ -734,7 +741,7 @@ export default function RaceDay() {
                               className="flex items-center justify-between text-xs"
                             >
                               <span className="text-slate">{rr.label}</span>
-                              <span className="text-accent2/80">+{rr.reward.toFixed(2)}</span>
+                              <span className="text-accent2/80">+{rr.reward.toFixed(8)}</span>
                             </div>
                           ))}
                         </div>
@@ -851,7 +858,8 @@ export default function RaceDay() {
 
       {/* Horse Details Tooltip */}
       {hoveredHorse && tooltipPos && (() => {
-        const visual = horseStyle(hoveredHorse.raceDayHorseId);
+        const visualSeed = hoveredHorse.horseId ?? hoveredHorse.raceDayHorseId;
+        const visual = horseStyle(visualSeed);
         const slotMeta = raceDaySlotMeta.get(hoveredHorse.raceDayHorseId);
         const jerseyColor = visual.patternBaseColor;
         const numberColor = jerseyColor ? contrastColor(jerseyColor) : "#1E1E1E";
@@ -894,7 +902,7 @@ export default function RaceDay() {
                     style={{ transform: "translate(-50%, -50%) translateX(-2px)" }}
                   >
                     <JerseyIcon
-                      seed={hoveredHorse.raceDayHorseId}
+                      seed={visualSeed}
                       width={14}
                       height={24}
                       shape="square"

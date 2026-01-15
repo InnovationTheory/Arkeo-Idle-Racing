@@ -6,6 +6,7 @@ import { contrastColor, horseStyle } from "../utils/horseStyle";
 
 type SelectedHorse = {
   raceHorseId: string;
+  horseId?: string;
   displayName: string;
   serviceType: {
     displayName: string;
@@ -32,8 +33,9 @@ export default function SelectionBanner({
 }: SelectionBannerProps) {
   if (!horse || !raceId) return null;
 
-  const visual = horseStyle(horse.raceHorseId);
-  const coinIconPath = serviceIconPath(horse.serviceType.iconKey);
+  const visualSeed = horse.horseId ?? horse.raceHorseId;
+  const visual = horseStyle(visualSeed);
+  const coinIconPath = serviceIconPath(horse.serviceType.iconKey, horse.serviceType.displayName);
   const horseSize = 40;
   const coinSize = 16;
   const effectiveJerseyColor = jerseyColor ?? horse.jerseyColor;
@@ -95,7 +97,7 @@ export default function SelectionBanner({
             style={{ transform: "translate(-50%, -50%) translateX(-2px)" }}
           >
             <JerseyIcon
-              seed={horse.raceHorseId}
+              seed={visualSeed}
               width={10}
               height={18}
               shape="square"

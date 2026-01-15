@@ -547,7 +547,15 @@ async function preflightRoundHeats(
   },
   raceDayHorseById: Map<
     string,
-    { id: string; horseId: string; archetype: RaceArchetype | null; temperament: Temperament | null; surfaceAffinity: SurfaceAffinity | null }
+    {
+      id: string;
+      horseId: string;
+      archetype: RaceArchetype | null;
+      temperament: Temperament | null;
+      surfaceAffinity: SurfaceAffinity | null;
+      serviceTypeId?: string | null;
+      assignedProviderId?: string | null;
+    }
   >,
   roundNumber: number = 1
 ): Promise<void> {
@@ -628,6 +636,11 @@ async function preflightRoundHeats(
         strategy: providerStrategy,
         broadcast: false,
         runPreflight: true
+      });
+      await persistRaceDayHorseAssignments({
+        raceId,
+        entrants,
+        raceDayHorseById
       });
     }
 
@@ -756,8 +769,6 @@ async function runRaceDay(raceDayId: string): Promise<void> {
       if (roundNumber < raceDay.totalRounds) {
         const advancers = await collectRoundAdvancers(raceDayId, roundNumber);
         await seedNextRound(raceDayId, roundNumber + 1, advancers);
-        // Preflight next round heats so users can see horses during countdown
-        await preflightRoundHeats(raceDay, raceDayHorseById, roundNumber + 1);
         await broadcastRaceDayState(raceDayId);
       }
     }
@@ -813,8 +824,24 @@ async function runHeat(
     status: RaceDayStatus;
   },
   heatId: string,
-  raceDayHorseByHorseId: Map<string, { id: string; horseId: string; archetype: RaceArchetype | null; temperament: Temperament | null; surfaceAffinity: SurfaceAffinity | null }>,
-  raceDayHorseById: Map<string, { id: string; horseId: string; archetype: RaceArchetype | null; temperament: Temperament | null; surfaceAffinity: SurfaceAffinity | null }>
+  raceDayHorseByHorseId: Map<string, {
+    id: string;
+    horseId: string;
+    archetype: RaceArchetype | null;
+    temperament: Temperament | null;
+    surfaceAffinity: SurfaceAffinity | null;
+    serviceTypeId?: string | null;
+    assignedProviderId?: string | null;
+  }>,
+  raceDayHorseById: Map<string, {
+    id: string;
+    horseId: string;
+    archetype: RaceArchetype | null;
+    temperament: Temperament | null;
+    surfaceAffinity: SurfaceAffinity | null;
+    serviceTypeId?: string | null;
+    assignedProviderId?: string | null;
+  }>
 ): Promise<void> {
   let attempt = 0;
   while (true) {
@@ -887,15 +914,19 @@ async function runHeat(
       throw new ValidationError("missing_race_config");
     }
 
-    const runPreflight = !baseMetadata.preflightCompleteAt;
+    // Initial RaceDay polling handles warmup; skip per-heat preflight.
     await applyProviderStrategy({
       raceId,
       strategy: providerStrategy,
       broadcast: false,
-      runPreflight
+      runPreflight: false
     });
-    const preflightCompleteAt =
-      baseMetadata.preflightCompleteAt ?? (runPreflight ? new Date().toISOString() : undefined);
+    await persistRaceDayHorseAssignments({
+      raceId,
+      entrants,
+      raceDayHorseById
+    });
+    const preflightCompleteAt = baseMetadata.preflightCompleteAt;
 
     const latestRaceDay = await prisma.raceDay.findUnique({
       where: { id: raceDay.id },
@@ -1042,7 +1073,15 @@ async function createHeatRace(params: {
   entrants: string[];
   raceDayHorseById: Map<
     string,
-    { id: string; horseId: string; archetype: RaceArchetype | null; temperament: Temperament | null; surfaceAffinity: SurfaceAffinity | null }
+    {
+      id: string;
+      horseId: string;
+      archetype: RaceArchetype | null;
+      temperament: Temperament | null;
+      surfaceAffinity: SurfaceAffinity | null;
+      serviceTypeId?: string | null;
+      assignedProviderId?: string | null;
+    }
   >;
 }) {
   // Fetch heat record to get pre-assigned track from metadata
@@ -1150,17 +1189,41 @@ async function createHeatRace(params: {
         throw new NotFoundError("raceday_entrant_missing");
       }
       const horseId = entry.horseId;
+      const serviceTypeId = entry.serviceTypeId ?? pickRandom(serviceTypePool).id;
+      if (!entry.serviceTypeId) {
+        entry.serviceTypeId = serviceTypeId;
+      }
       return {
         raceId: race.id,
         horseId,
         lane: index + 1,
-        serviceTypeId: pickRandom(serviceTypePool).id,
+        serviceTypeId,
         archetype: entry?.archetype ?? pickRandom(archetypes),
         temperament: entry?.temperament ?? pickRandom(temperaments),
-        surfaceAffinity: entry?.surfaceAffinity ?? pickRandom(surfaceAffinities)
+        surfaceAffinity: entry?.surfaceAffinity ?? pickRandom(surfaceAffinities),
+        assignedProviderId: entry.assignedProviderId ?? null
       };
     })
   });
+
+  const serviceTypeUpdates = params.entrants
+    .map((raceDayHorseId) => {
+      const entry = params.raceDayHorseById.get(raceDayHorseId);
+      if (!entry || !entry.serviceTypeId) return null;
+      return { id: raceDayHorseId, serviceTypeId: entry.serviceTypeId };
+    })
+    .filter(Boolean) as Array<{ id: string; serviceTypeId: string }>;
+
+  if (serviceTypeUpdates.length > 0) {
+    await prisma.$transaction(
+      serviceTypeUpdates.map((update) =>
+        prisma.raceDayHorse.update({
+          where: { id: update.id },
+          data: { serviceTypeId: update.serviceTypeId }
+        })
+      )
+    );
+  }
 
   // Calculate and store odds for each horse based on track matchup + record
   await calculateRaceOdds(race.id);
@@ -1206,6 +1269,7 @@ async function applyProviderStrategy(params: {
       providers.map((provider) => [provider.serviceTypeId, provider])
     );
     for (const entry of raceHorses) {
+      if (entry.assignedProviderId) continue;
       const provider = providersByService.get(entry.serviceTypeId);
       if (!provider) continue;
       await prisma.raceHorse.update({
@@ -1215,7 +1279,7 @@ async function applyProviderStrategy(params: {
     }
   } else if (strategy.mode === "single_provider_service") {
     await prisma.raceHorse.updateMany({
-      where: { raceId: params.raceId },
+      where: { raceId: params.raceId, assignedProviderId: null },
       data: { assignedProviderId: strategy.providerId }
     });
   }
@@ -1226,6 +1290,74 @@ async function applyProviderStrategy(params: {
     broadcast,
     emitEvent: true
   });
+}
+
+async function persistRaceDayHorseAssignments(params: {
+  raceId: string;
+  entrants: string[];
+  raceDayHorseById: Map<
+    string,
+    {
+      id: string;
+      horseId: string;
+      archetype: RaceArchetype | null;
+      temperament: Temperament | null;
+      surfaceAffinity: SurfaceAffinity | null;
+      serviceTypeId?: string | null;
+      assignedProviderId?: string | null;
+    }
+  >;
+}): Promise<void> {
+  const raceHorses = await prisma.raceHorse.findMany({
+    where: { raceId: params.raceId },
+    select: {
+      horseId: true,
+      serviceTypeId: true,
+      assignedProviderId: true
+    }
+  });
+  const raceHorseByHorseId = new Map(
+    raceHorses.map((horse) => [horse.horseId, horse])
+  );
+
+  const updates: Array<{ id: string; serviceTypeId?: string; assignedProviderId?: string | null }> = [];
+
+  for (const raceDayHorseId of params.entrants) {
+    const entry = params.raceDayHorseById.get(raceDayHorseId);
+    if (!entry) continue;
+    const raceHorse = raceHorseByHorseId.get(entry.horseId);
+    if (!raceHorse) continue;
+
+    const update: { id: string; serviceTypeId?: string; assignedProviderId?: string | null } = { id: raceDayHorseId };
+
+    if (!entry.serviceTypeId) {
+      update.serviceTypeId = raceHorse.serviceTypeId;
+      entry.serviceTypeId = raceHorse.serviceTypeId;
+    }
+
+    if (!entry.assignedProviderId && raceHorse.assignedProviderId) {
+      update.assignedProviderId = raceHorse.assignedProviderId;
+      entry.assignedProviderId = raceHorse.assignedProviderId;
+    }
+
+    if (update.serviceTypeId || update.assignedProviderId) {
+      updates.push(update);
+    }
+  }
+
+  if (updates.length === 0) return;
+
+  await prisma.$transaction(
+    updates.map((update) =>
+      prisma.raceDayHorse.update({
+        where: { id: update.id },
+        data: {
+          ...(update.serviceTypeId ? { serviceTypeId: update.serviceTypeId } : {}),
+          ...(update.assignedProviderId ? { assignedProviderId: update.assignedProviderId } : {})
+        }
+      })
+    )
+  );
 }
 
 async function waitForRaceCompletion(raceId: string, timeoutSecs: number) {
