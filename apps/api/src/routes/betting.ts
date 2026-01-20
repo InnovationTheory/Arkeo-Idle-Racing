@@ -22,6 +22,66 @@ import {
   submitPicksSchema
 } from "./schemas/betting";
 import { RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX_REQUESTS, MAX_IDEMPOTENCY_KEY_LENGTH } from "./constants";
+import { broadcastToChat } from "../ws";
+
+// Selection announcement templates - {player} and {horse} will be replaced
+const SELECTION_MESSAGES = [
+  "🐴 {player} is backing {horse}!",
+  "🏇 {player} puts their faith in {horse}!",
+  "⚡ {player} likes the look of {horse}!",
+  "🎯 {player} is riding with {horse}!",
+  "🔥 {player} believes in {horse}!",
+  "💪 {player} is all in on {horse}!",
+  "🌟 {player} picks {horse} to win!",
+  "🎲 {player} rolls the dice on {horse}!",
+  "👀 {player} has their eye on {horse}!",
+  "🚀 {player} is launching with {horse}!",
+  "💎 {player} found a gem in {horse}!",
+  "🏆 {player} thinks {horse} has what it takes!",
+  "⭐ {player} is starstruck by {horse}!",
+  "🎪 {player} joins team {horse}!",
+  "🤝 {player} teams up with {horse}!",
+  "📣 {player} cheers for {horse}!",
+  "🎬 {player} casts {horse} as the winner!",
+  "🧲 {player} is drawn to {horse}!",
+  "🔮 {player} foresees victory for {horse}!",
+  "💫 {player} sees a star in {horse}!",
+  "🎰 {player} bets on {horse}!",
+  "🏅 {player} awards their vote to {horse}!",
+  "📍 {player} pins their hopes on {horse}!",
+  "🎯 {player} sets sights on {horse}!",
+  "⚔️ {player} champions {horse}!",
+  "🛡️ {player} defends {horse}'s honor!",
+  "🌈 {player} chases gold with {horse}!",
+  "🦄 {player} spots magic in {horse}!",
+  "🔑 {player} sees potential in {horse}!",
+  "💰 {player} invests in {horse}!",
+  "🎁 {player} picks {horse} as their gift!",
+  "🧭 {player} charts a course with {horse}!",
+  "⛵ {player} sails with {horse}!",
+  "🚂 {player} boards the {horse} train!",
+  "✈️ {player} flies with {horse}!",
+  "🏄 {player} rides the {horse} wave!",
+  "🎸 {player} rocks with {horse}!",
+  "🥊 {player} goes to battle with {horse}!",
+  "🏹 {player} takes aim with {horse}!",
+  "🎳 {player} strikes with {horse}!",
+  "⚾ {player} swings for the fences with {horse}!",
+  "🏀 {player} takes the shot with {horse}!",
+  "⚽ {player} scores with {horse}!",
+  "🎾 {player} aces it with {horse}!",
+  "🏈 {player} huddles with {horse}!",
+  "🥅 {player} goes for the goal with {horse}!",
+  "🏒 {player} hits the ice with {horse}!",
+  "🎿 {player} hits the slopes with {horse}!",
+  "🏋️ {player} lifts up {horse}!",
+  "🤞 {player} crosses fingers for {horse}!",
+];
+
+function getRandomSelectionMessage(player: string, horse: string): string {
+  const template = SELECTION_MESSAGES[Math.floor(Math.random() * SELECTION_MESSAGES.length)];
+  return template.replace("{player}", player).replace("{horse}", horse);
+}
 
 const router = Router();
 const sessionWindowMs = RATE_LIMIT_WINDOW_MS;
@@ -442,18 +502,40 @@ router.post(
     }
 
     const raceHorse = await prisma.raceHorse.findFirst({
-      where: { id: raceHorseId, raceId: race.id }
+      where: { id: raceHorseId, raceId: race.id },
+      include: { horse: true }
     });
     if (!raceHorse) {
       res.status(400).json({ error: "invalid_pick" });
       return;
     }
 
+    // Check if this is a new selection or a change
+    const existingSelection = await prisma.raceSelection.findUnique({
+      where: { raceId_userId: { raceId: race.id, userId: user.id } }
+    });
+    const isNewSelection = !existingSelection || existingSelection.raceHorseId !== raceHorseId;
+
     const selection = await prisma.raceSelection.upsert({
       where: { raceId_userId: { raceId: race.id, userId: user.id } },
       update: { raceHorseId },
       create: { raceId: race.id, userId: user.id, raceHorseId }
     });
+
+    // Broadcast to chat if this is a new/changed selection
+    if (isNewSelection) {
+      const displayName = user.nickname || user.handle;
+      const message = getRandomSelectionMessage(displayName, raceHorse.horse.displayName);
+      broadcastToChat({
+        type: "chat_message",
+        data: {
+          id: `selection-${selection.id}`,
+          text: message,
+          createdAt: new Date().toISOString(),
+          user: { id: "system", displayName: "Race Announcer" }
+        }
+      });
+    }
 
     res.json({ selection: { raceHorseId: selection.raceHorseId } });
   })

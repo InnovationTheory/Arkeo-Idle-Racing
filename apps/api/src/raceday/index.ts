@@ -95,6 +95,7 @@ type RaceDayHorseSummary = {
   eliminatedRound: number | null;
   eliminatedHeat: number | null;
   finalPlacement: number | null;
+  backerCount: number;
 };
 
 type RaceDayHeatState = {
@@ -1489,6 +1490,17 @@ export async function getRaceDayState(raceDayId: string): Promise<RaceDayState |
   });
   if (!raceDay) return null;
 
+  // Get selection counts per horse
+  const selectionCounts = await prisma.raceDaySelection.groupBy({
+    by: ["raceDayHorseId"],
+    where: { raceDayId },
+    _count: { raceDayHorseId: true }
+  });
+  const selectionCountMap = new Map<string, number>();
+  for (const entry of selectionCounts) {
+    selectionCountMap.set(entry.raceDayHorseId, entry._count.raceDayHorseId);
+  }
+
   const horseById = new Map<string, RaceDayHorseSummary>();
   for (const entry of raceDay.horses) {
     horseById.set(entry.id, {
@@ -1501,7 +1513,8 @@ export async function getRaceDayState(raceDayId: string): Promise<RaceDayState |
       surfaceAffinity: entry.surfaceAffinity ?? null,
       eliminatedRound: entry.eliminatedRound ?? null,
       eliminatedHeat: entry.eliminatedHeat ?? null,
-      finalPlacement: entry.finalPlacement ?? null
+      finalPlacement: entry.finalPlacement ?? null,
+      backerCount: selectionCountMap.get(entry.id) ?? 0
     });
   }
 

@@ -7,6 +7,7 @@ import { updateHorseHistory } from "../history";
 import { getRaceWithRelations } from "../queries";
 import type { RaceRuntime, HorseRuntime } from "./types";
 import { placementRewardsArkeo } from "./constants";
+import { postSystemChatMessage } from "../../chat/system";
 
 type HorseStats = {
   avgP95: number;
@@ -252,6 +253,32 @@ export async function finishRace(raceId: string, runtime: RaceRuntime): Promise<
   await processPayouts(raceId, payoutQueue);
 
   broadcastToRace(raceId, { type: "results_ready", data: { raceId } });
+
+  // Announce winner in chat
+  const winnerRaceHorseId = [...placements.entries()].find(([, place]) => place === 1)?.[0];
+  const winnerHorse = race.raceHorses.find((rh) => rh.id === winnerRaceHorseId);
+  if (winnerHorse) {
+    postSystemChatMessage(`🏆 ${winnerHorse.horse.displayName} wins the race!`).catch(() => {});
+  }
+
+  // Congratulate players who picked top 3
+  const winningSelections = await prisma.raceSelection.findMany({
+    where: { raceId },
+    include: {
+      user: { select: { nickname: true } },
+      raceHorse: { include: { horse: { select: { displayName: true } } } }
+    }
+  });
+
+  for (const selection of winningSelections) {
+    const placement = placements.get(selection.raceHorseId);
+    if (!placement || placement > 3 || !selection.user.nickname) continue;
+
+    const ordinal = placement === 1 ? "1st" : placement === 2 ? "2nd" : "3rd";
+    postSystemChatMessage(
+      `🎉 Congrats ${selection.user.nickname}! ${selection.raceHorse.horse.displayName} finished ${ordinal}!`
+    ).catch(() => {});
+  }
 }
 
 async function processPayouts(raceId: string, payoutQueue: PayoutQueueItem[]): Promise<void> {

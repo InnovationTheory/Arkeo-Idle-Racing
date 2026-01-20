@@ -30,6 +30,7 @@ type RaceDayHorse = {
   eliminatedRound: number | null;
   eliminatedHeat: number | null;
   finalPlacement: number | null;
+  backerCount: number;
 };
 
 type HorseDetail = {

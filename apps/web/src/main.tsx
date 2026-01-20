@@ -11,6 +11,7 @@ import HorseSilhouette from "./components/HorseSilhouette";
 import SelectionBanner from "./components/SelectionBanner";
 import RaceNotification from "./components/RaceNotification";
 import QuickstartModal from "./components/QuickstartModal";
+import PersistentChat from "./components/PersistentChat";
 import { LockedSelectionProvider, useLockedSelection } from "./hooks/useLockedSelection";
 import { useCurrentRace } from "./queries";
 import { SoundProvider, useSound } from "./hooks";
@@ -102,7 +103,7 @@ function AppLayout() {
           </div>
         </header>
 
-        <main className="flex flex-col gap-6 pb-12">
+        <main className="flex flex-col gap-6 pb-16">
           <RaceNotification />
           <Routes>
             <Route path="/" element={<Lobby />} />
@@ -117,6 +118,7 @@ function AppLayout() {
           />
         </main>
       </div>
+      {location.pathname !== "/admin" && <PersistentChat />}
     </div>
   );
 }

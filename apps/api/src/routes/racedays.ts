@@ -22,6 +22,7 @@ import {
   processRaceDayPayoutsSchema
 } from "./schemas/racedays";
 import { sendArkeoReward } from "../arkeo/send";
+import { postSystemChatMessage } from "../chat/system";
 import { config } from "../config";
 import { prisma } from "../db";
 import { RaceDayHeatStatus, RaceDayStatus, RaceStatus } from "@prisma/client";
@@ -38,6 +39,64 @@ const lockedRaceDayStatuses = new Set<RaceDayStatus>([
   RaceDayStatus.complete,
   RaceDayStatus.canceled
 ]);
+
+const SELECTION_MESSAGES = [
+  "🐴 {player} is backing {horse}!",
+  "🏇 {player} puts their faith in {horse}!",
+  "⭐ {player} picks {horse} to win!",
+  "🎯 {player} has chosen {horse}!",
+  "🔥 {player} is riding with {horse}!",
+  "💪 {player} believes in {horse}!",
+  "🎪 {player} places their bet on {horse}!",
+  "🌟 {player} backs {horse} for the win!",
+  "🏆 {player} is going all in on {horse}!",
+  "⚡ {player} selects {horse}!",
+  "🎲 {player} rolls with {horse}!",
+  "🚀 {player} launches with {horse}!",
+  "💎 {player} picks the diamond: {horse}!",
+  "🎯 {player}'s choice: {horse}!",
+  "🐎 {player} saddles up with {horse}!",
+  "🏁 {player} lines up behind {horse}!",
+  "✨ {player} sees magic in {horse}!",
+  "🎰 {player} bets on {horse}!",
+  "👑 {player} crowns {horse} as their pick!",
+  "🌈 {player} chases glory with {horse}!",
+  "💫 {player} shoots for the stars with {horse}!",
+  "🎪 {player} joins Team {horse}!",
+  "🔮 {player} predicts victory for {horse}!",
+  "⚔️ {player} champions {horse}!",
+  "🛡️ {player} defends {horse}'s honor!",
+  "🎭 {player} reveals their pick: {horse}!",
+  "🏅 {player} awards gold to {horse}!",
+  "🎸 {player} rocks with {horse}!",
+  "🌊 {player} rides the wave with {horse}!",
+  "⛰️ {player} climbs with {horse}!",
+  "🎯 Bulls-eye! {player} picks {horse}!",
+  "🔔 {player} rings the bell for {horse}!",
+  "📣 {player} announces: {horse}!",
+  "🎺 {player} trumpets {horse}!",
+  "🎵 {player} sings praises for {horse}!",
+  "🌠 {player} wishes upon {horse}!",
+  "💥 {player} goes big with {horse}!",
+  "🎁 {player} picks a winner: {horse}!",
+  "🗳️ {player} casts their vote for {horse}!",
+  "📍 {player} pins their hopes on {horse}!",
+  "🧭 {player}'s compass points to {horse}!",
+  "🎪 {player} raises the flag for {horse}!",
+  "⚡ Lightning pick! {player} chooses {horse}!",
+  "🌅 {player} sees potential in {horse}!",
+  "🎊 {player} celebrates {horse}!",
+  "🧲 {player} is drawn to {horse}!",
+  "🎯 Lock it in! {player} picks {horse}!",
+  "🔥 Hot pick! {player} goes with {horse}!",
+  "💰 {player} puts their money on {horse}!",
+  "🏹 {player} aims for victory with {horse}!"
+];
+
+function getRandomSelectionMessage(player: string, horse: string): string {
+  const template = SELECTION_MESSAGES[Math.floor(Math.random() * SELECTION_MESSAGES.length)];
+  return template.replace("{player}", player).replace("{horse}", horse);
+}
 
 function isSelectionWindowOpen(raceDay: { status: RaceDayStatus; startAt: Date | null }) {
   if (raceDay.status !== RaceDayStatus.picking) return false;
@@ -202,7 +261,8 @@ router.post(
 
     const { raceDayHorseId } = req.body as { raceDayHorseId: string };
     const raceDayHorse = await prisma.raceDayHorse.findFirst({
-      where: { id: raceDayHorseId, raceDayId: raceDay.id }
+      where: { id: raceDayHorseId, raceDayId: raceDay.id },
+      include: { horse: { select: { displayName: true } } }
     });
     if (!raceDayHorse) {
       res.status(400).json({ error: "invalid_pick" });
@@ -232,6 +292,15 @@ router.post(
     const created = await prisma.raceDaySelection.create({
       data: { raceDayId: raceDay.id, userId: user.id, raceDayHorseId }
     });
+
+    // Broadcast selection announcement to chat
+    if (user.nickname) {
+      const horseDisplayName = raceDayHorse.horse.displayName;
+      const message = getRandomSelectionMessage(user.nickname, horseDisplayName);
+      postSystemChatMessage(message).catch((err) => {
+        console.error("[Chat] Failed to post selection message:", err);
+      });
+    }
 
     res.json({ selections: [...existing.map((entry) => entry.raceDayHorseId), created.raceDayHorseId] });
   })

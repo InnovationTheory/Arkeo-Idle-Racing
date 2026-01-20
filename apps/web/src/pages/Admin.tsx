@@ -31,6 +31,9 @@ const defaultForm: CreateRaceDayForm = {
   bufferSecs: 30
 };
 
+type StatusFilter = "all" | "active" | "complete" | "canceled";
+const ITEMS_PER_PAGE = 10;
+
 export default function Admin() {
   const [adminKey, setAdminKey] = useState(() => localStorage.getItem("adminKey") || "");
   const [racedays, setRacedays] = useState<RaceDayInfo[]>([]);
@@ -40,10 +43,34 @@ export default function Admin() {
   const [loading, setLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createForm, setCreateForm] = useState<CreateRaceDayForm>({ ...defaultForm });
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [currentPage, setCurrentPage] = useState(1);
 
   const showMessage = (msg: string) => {
     setMessage(msg);
     setTimeout(() => setMessage(null), 5000);
+  };
+
+  // Filter racedays by status
+  const filteredRacedays = racedays.filter((rd) => {
+    if (statusFilter === "all") return true;
+    if (statusFilter === "active") return !["canceled", "complete"].includes(rd.status);
+    if (statusFilter === "complete") return rd.status === "complete";
+    if (statusFilter === "canceled") return rd.status === "canceled";
+    return true;
+  });
+
+  // Pagination
+  const totalPages = Math.ceil(filteredRacedays.length / ITEMS_PER_PAGE);
+  const paginatedRacedays = filteredRacedays.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  // Reset page when filter changes
+  const handleFilterChange = (filter: StatusFilter) => {
+    setStatusFilter(filter);
+    setCurrentPage(1);
   };
 
   const saveAdminKey = () => {
@@ -138,7 +165,7 @@ export default function Admin() {
   };
 
   return (
-    <div className="flex flex-col gap-6 p-6 max-w-4xl mx-auto">
+    <div className="flex flex-col gap-6">
       <h1 className="font-display text-4xl uppercase tracking-[0.1em] text-midnight">Admin</h1>
 
       {message && (
@@ -203,23 +230,41 @@ export default function Admin() {
               );
               const canCreate = !activeRaceday;
               return (
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm uppercase tracking-[0.2em] text-slate">RaceDays</h2>
-                  <div className="flex items-center gap-2">
-                    {activeRaceday && (
-                      <span className="text-xs text-warning">Event in progress</span>
-                    )}
-                    <button
-                      onClick={() => setShowCreateForm(!showCreateForm)}
-                      disabled={loading || !canCreate}
-                      className={`rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 ${
-                        showCreateForm
-                          ? "bg-slate/20 text-slate"
-                          : "bg-accent2 text-white"
-                      }`}
-                    >
-                      {showCreateForm ? "Cancel" : "New RaceDay"}
-                    </button>
+                <div className="flex flex-col gap-3 mb-3">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm uppercase tracking-[0.2em] text-slate">RaceDays</h2>
+                    <div className="flex items-center gap-2">
+                      {activeRaceday && (
+                        <span className="text-xs text-warning">Event in progress</span>
+                      )}
+                      <button
+                        onClick={() => setShowCreateForm(!showCreateForm)}
+                        disabled={loading || !canCreate}
+                        className={`rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 ${
+                          showCreateForm
+                            ? "bg-slate/20 text-slate"
+                            : "bg-accent2 text-white"
+                        }`}
+                      >
+                        {showCreateForm ? "Cancel" : "New RaceDay"}
+                      </button>
+                    </div>
+                  </div>
+                  {/* Filter buttons */}
+                  <div className="flex gap-2">
+                    {(["all", "active", "complete", "canceled"] as StatusFilter[]).map((filter) => (
+                      <button
+                        key={filter}
+                        onClick={() => handleFilterChange(filter)}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wider transition ${
+                          statusFilter === filter
+                            ? "bg-midnight text-white"
+                            : "bg-midnight/10 text-midnight hover:bg-midnight/20"
+                        }`}
+                      >
+                        {filter}
+                      </button>
+                    ))}
                   </div>
                 </div>
               );
@@ -292,14 +337,14 @@ export default function Admin() {
                 </button>
               </div>
             )}
-            {racedays.length === 0 ? (
-              <p className="text-slate">No racedays</p>
+            {filteredRacedays.length === 0 ? (
+              <p className="text-slate">No racedays {statusFilter !== "all" ? `with status "${statusFilter}"` : ""}</p>
             ) : (
               <div className="flex flex-col gap-3">
-                {racedays.map((rd) => (
+                {paginatedRacedays.map((rd) => (
                   <div
                     key={rd.raceDayId}
-                    className="flex items-center justify-between gap-6 rounded-xl bg-panel/50 px-5 py-4"
+                    className="flex items-center justify-between gap-6 rounded-xl bg-panel px-5 py-4"
                   >
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-ink">{rd.name}</p>
@@ -351,6 +396,33 @@ export default function Admin() {
                     </div>
                   </div>
                 ))}
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between pt-4 border-t border-midnight/10">
+                    <p className="text-xs text-slate">
+                      Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1}-{Math.min(currentPage * ITEMS_PER_PAGE, filteredRacedays.length)} of {filteredRacedays.length}
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="rounded-lg bg-midnight/10 px-3 py-1.5 text-xs font-semibold text-midnight disabled:opacity-50"
+                      >
+                        Previous
+                      </button>
+                      <span className="flex items-center px-3 text-xs text-slate">
+                        Page {currentPage} of {totalPages}
+                      </span>
+                      <button
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        className="rounded-lg bg-midnight/10 px-3 py-1.5 text-xs font-semibold text-midnight disabled:opacity-50"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </section>

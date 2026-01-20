@@ -55,6 +55,7 @@ type HorseCardProps = {
   interactive?: boolean;
   background?: string;
   selectedBy?: string[];
+  backerCount?: number;
   onToggle?: (raceHorseId: string) => void;
   onConfirmSelection?: (raceHorseId: string) => void;
 };
@@ -68,6 +69,7 @@ export default function HorseCard({
   interactive = true,
   background,
   selectedBy,
+  backerCount,
   onToggle,
   onConfirmSelection,
   prepProbes,
@@ -269,6 +271,11 @@ export default function HorseCard({
                     </span>
                   ))}
                 </div>
+              )}
+              {typeof backerCount === "number" && backerCount > 0 && (
+                <span className="mt-1 whitespace-nowrap text-[10px] uppercase tracking-[0.2em] text-ink/50">
+                  {backerCount} {backerCount === 1 ? "backer" : "backers"}
+                </span>
               )}
             </div>
           )}

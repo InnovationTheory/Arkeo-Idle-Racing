@@ -29,6 +29,7 @@ type RaceDayHorse = {
   eliminatedRound: number | null;
   eliminatedHeat: number | null;
   finalPlacement: number | null;
+  backerCount: number;
 };
 
 type RaceDayHeat = {
@@ -776,6 +777,7 @@ export default function Lobby() {
                           !hasNickname ||
                           (!isSelected && limitReached)
                         }
+                        backerCount={entry.backerCount}
                         onToggle={handleRaceDaySelectHorse}
                         onConfirmSelection={handleRaceDaySelectHorse}
                         interactive
@@ -1258,6 +1260,37 @@ export default function Lobby() {
                   </ul>
                   <p className="mt-2 text-xs text-slate">
                     Odds weight rewards. Bigger odds earn a larger share if they place.
+                  </p>
+                </div>
+
+                <div className="border-t border-dashed border-midnight/20 pt-3">
+                  <p className="text-xs uppercase tracking-[0.3em] text-slate">Record</p>
+                  <p className="mt-2">
+                    Each horse displays a record in W-P-S-R format showing their racing history:
+                  </p>
+                  <ul className="mt-2 space-y-1 pl-4">
+                    <li><strong>W</strong> – Wins (1st place finishes)</li>
+                    <li><strong>P</strong> – Places (2nd place finishes)</li>
+                    <li><strong>S</strong> – Shows (3rd place finishes)</li>
+                    <li><strong>R</strong> – Races (total starts)</li>
+                  </ul>
+                  <p className="mt-2 text-xs text-slate">
+                    Example: 1-0-0-3 means 1 win, 0 places, 0 shows in 3 races.
+                  </p>
+                </div>
+
+                <div className="border-t border-dashed border-midnight/20 pt-3">
+                  <p className="text-xs uppercase tracking-[0.3em] text-slate">Warmup Probes</p>
+                  <p className="mt-2">
+                    The 3 symbols below the record show pre-race health checks of the horse's
+                    assigned Arkeo provider:
+                  </p>
+                  <ul className="mt-2 space-y-1 pl-4">
+                    <li><span className="text-green-600">✓</span> – Provider responded successfully</li>
+                    <li><span className="text-red-500">✗</span> – Provider error or timeout</li>
+                  </ul>
+                  <p className="mt-2 text-xs text-slate">
+                    Horses with failed probes may stumble or get eliminated during the race.
                   </p>
                 </div>
 

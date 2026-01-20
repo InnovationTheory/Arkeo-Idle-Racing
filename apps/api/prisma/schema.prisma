@@ -97,6 +97,7 @@ model User {
   selections   RaceSelection[]
   raceDaySelections RaceDaySelection[]
   raceDayPayouts    RaceDayPayout[]
+  chatMessages ChatMessage[]
 }
 
 model Balance {
@@ -451,4 +452,14 @@ model RaceHorsePoll {
   @@index([raceId, tick])
   @@index([raceHorseId, tick])
   @@index([providerId])
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  userId    String
+  text      String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([createdAt])
 }

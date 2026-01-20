@@ -11,6 +11,7 @@ import { serializeRace } from "../race/serialize";
 import { broadcastToRace } from "../ws";
 import { startLeaderElection, stopLeaderElection } from "./leader";
 import { schedulerLogger } from "../logger";
+import { postSystemChatMessage } from "../chat/system";
 
 let schedulerInterval: NodeJS.Timeout | null = null;
 let transitionInterval: NodeJS.Timeout | null = null;
@@ -564,6 +565,7 @@ async function checkTransitions(): Promise<void> {
           }
         });
         await startRaceEngine(race.id);
+        postSystemChatMessage(`🏇 Race started! Good luck to all riders!`).catch(() => {});
       }
     }
 

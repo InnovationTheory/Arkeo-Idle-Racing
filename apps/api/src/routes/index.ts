@@ -11,6 +11,7 @@ import raceDayRoutes from "./racedays";
 import adminRoutes from "./admin";
 import subscriberRoutes from "./subscriber";
 import docsRoutes from "./docs";
+import chatRoutes from "./chat";
 
 const router = Router();
 const ipWindowMs = 60_000;
@@ -48,5 +49,6 @@ router.use("/racedays", raceDayRoutes);
 router.use("/admin", adminRoutes);
 router.use("/subscriber", subscriberRoutes);
 router.use("/docs", docsRoutes);
+router.use("/chat", chatRoutes);
 
 export default router;
