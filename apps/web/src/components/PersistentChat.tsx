@@ -264,9 +264,14 @@ export default function PersistentChat() {
                   messages.map((msg) => {
                     const isSystem = msg.user.displayName === "Race Announcer";
                     if (isSystem) {
-                      const isRaceEvent = msg.text.startsWith("🏇") || msg.text.startsWith("🏆") || msg.text.startsWith("🎉");
+                      // Race lifecycle events (grey): race/heat started, horse wins
+                      // User selection events (orange): player picks horse
+                      const isRaceLifecycle =
+                        msg.text.includes(" wins ") ||
+                        msg.text.includes(" started") ||
+                        msg.text.includes("Good luck");
                       return (
-                        <p key={msg.id} className={`mb-2 text-sm last:mb-0 ${isRaceEvent ? "text-stone-400" : "text-accent"}`}>
+                        <p key={msg.id} className={`mb-2 text-sm last:mb-0 ${isRaceLifecycle ? "text-stone-400" : "text-accent"}`}>
                           {msg.text}
                         </p>
                       );

@@ -195,18 +195,20 @@ export default function RaceDay() {
   }, []);
 
   // Fetch leaderboard (full display, not just user's reward)
+  // Use targetRaceDayId directly so it fetches immediately when switching race days
+  const leaderboardRaceDayId = targetRaceDayId ?? raceDay?.raceDayId;
   useEffect(() => {
     // Clear previous data immediately when raceDayId changes
     setLeaderboard([]);
 
-    if (!raceDay?.raceDayId) {
+    if (!leaderboardRaceDayId) {
       return;
     }
     let mounted = true;
     const fetchLeaderboard = async () => {
       try {
         const data = await apiGet<{ players: LeaderboardPlayer[] }>(
-          `/api/racedays/${raceDay.raceDayId}/leaderboard`
+          `/api/racedays/${leaderboardRaceDayId}/leaderboard`
         );
         if (!mounted) return;
         setLeaderboard(data.players ?? []);
@@ -219,7 +221,7 @@ export default function RaceDay() {
     return () => {
       mounted = false;
     };
-  }, [raceDay?.raceDayId, raceDay?.status]);
+  }, [leaderboardRaceDayId, raceDay?.status]);
 
   // Fetch provider statistics with auto-refresh during active raceday
   useEffect(() => {
