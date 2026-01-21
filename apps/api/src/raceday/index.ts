@@ -1314,8 +1314,13 @@ async function applyProviderStrategy(params: {
       });
     }
   } else if (strategy.mode === "single_provider_service") {
+    // Only assign to horses whose serviceTypeId matches the provider's serviceTypeId
     await prisma.raceHorse.updateMany({
-      where: { raceId: params.raceId, assignedProviderId: null },
+      where: {
+        raceId: params.raceId,
+        assignedProviderId: null,
+        serviceTypeId: strategy.serviceTypeId
+      },
       data: { assignedProviderId: strategy.providerId }
     });
   }
