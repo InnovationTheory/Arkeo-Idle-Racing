@@ -1,6 +1,6 @@
 import React from "react";
 import { connectChatWs } from "../ws";
-import { useWalletState } from "../hooks/useWalletState";
+import { apiGet } from "../api";
 
 interface ChatUser {
   id: string;
@@ -14,6 +14,11 @@ interface ChatMessage {
   user: ChatUser;
 }
 
+type MeResponse = {
+  walletAddress?: string | null;
+  nickname?: string | null;
+};
+
 const STORAGE_KEY = "arkeo.chat.expanded";
 const SESSION_STORAGE_KEY = "arkeo_session_token";
 
@@ -26,7 +31,8 @@ function getSessionToken(): string | null {
 }
 
 export default function PersistentChat() {
-  const { walletAddress, nickname } = useWalletState();
+  const [walletAddress, setWalletAddress] = React.useState<string | null>(null);
+  const [nickname, setNickname] = React.useState<string | null>(null);
   const [isExpanded, setIsExpanded] = React.useState(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored === "true";
@@ -43,6 +49,32 @@ export default function PersistentChat() {
   const connectionRef = React.useRef<ReturnType<typeof connectChatWs> | null>(null);
 
   const canSendMessages = Boolean(walletAddress && nickname);
+
+  // Fetch wallet state on mount and when it changes
+  const fetchWalletState = React.useCallback(() => {
+    apiGet<MeResponse>("/api/me")
+      .then((me) => {
+        setWalletAddress(me.walletAddress ?? null);
+        setNickname(me.nickname ?? null);
+      })
+      .catch(() => {
+        setWalletAddress(null);
+        setNickname(null);
+      });
+  }, []);
+
+  React.useEffect(() => {
+    fetchWalletState();
+
+    const handleWalletChange = () => {
+      fetchWalletState();
+    };
+
+    window.addEventListener("walletStateChanged", handleWalletChange);
+    return () => {
+      window.removeEventListener("walletStateChanged", handleWalletChange);
+    };
+  }, [fetchWalletState]);
 
   // Persist expanded preference
   React.useEffect(() => {
@@ -108,41 +140,41 @@ export default function PersistentChat() {
     };
   }, []);
 
-  // Reconnect with new session when wallet connects
+  // Reconnect when wallet connects/disconnects or nickname changes
   React.useEffect(() => {
-    if (walletAddress && connectionRef.current) {
-      // Close old connection and reconnect with session
-      connectionRef.current.close();
-      const sessionToken = getSessionToken();
+    if (!connectionRef.current) return;
 
-      const handleMessage = (data: any) => {
-        if (data.type === "chat_history") {
-          setMessages(data.data.messages);
-          setPlayers(data.data.players);
-          setViewers(data.data.viewers);
-        } else if (data.type === "chat_message") {
-          setMessages((prev) => [...prev, data.data].slice(-200));
-        } else if (data.type === "chat_online") {
-          setPlayers(data.data.players);
-          setViewers(data.data.viewers);
-        } else if (data.type === "chat_error") {
-          if (data.data.error === "profanity_detected") {
-            setSendError("Message contains blocked words");
-          } else if (data.data.error === "not_authorized") {
-            setSendError("Connect wallet and set nickname to chat");
-          }
-          setIsSending(false);
+    // Close old connection and reconnect with updated session
+    connectionRef.current.close();
+    const sessionToken = getSessionToken();
+
+    const handleMessage = (data: any) => {
+      if (data.type === "chat_history") {
+        setMessages(data.data.messages);
+        setPlayers(data.data.players);
+        setViewers(data.data.viewers);
+      } else if (data.type === "chat_message") {
+        setMessages((prev) => [...prev, data.data].slice(-200));
+      } else if (data.type === "chat_online") {
+        setPlayers(data.data.players);
+        setViewers(data.data.viewers);
+      } else if (data.type === "chat_error") {
+        if (data.data.error === "profanity_detected") {
+          setSendError("Message contains blocked words");
+        } else if (data.data.error === "not_authorized") {
+          setSendError("Connect wallet and set nickname to chat");
         }
-      };
+        setIsSending(false);
+      }
+    };
 
-      connectionRef.current = connectChatWs(
-        sessionToken,
-        handleMessage,
-        () => setIsConnected(true),
-        () => setIsConnected(false)
-      );
-    }
-  }, [walletAddress]);
+    connectionRef.current = connectChatWs(
+      sessionToken,
+      handleMessage,
+      () => setIsConnected(true),
+      () => setIsConnected(false)
+    );
+  }, [walletAddress, nickname]);
 
   const toggleExpanded = () => {
     setIsExpanded((prev) => !prev);

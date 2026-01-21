@@ -118,6 +118,8 @@ export function useWalletState() {
         setIsNicknameEditing(true);
       }
       setWalletMessage("Wallet linked.");
+      // Notify other components of wallet state change
+      window.dispatchEvent(new CustomEvent("walletStateChanged"));
     } catch (error: any) {
       // If we got a 401, disconnect the wallet provider too
       if (type === "walletconnect") {
@@ -175,6 +177,8 @@ export function useWalletState() {
       setIsNicknameEditing(true);
       setRaceCredits(null);
       setWalletMessage("Wallet disconnected.");
+      // Notify other components of wallet state change
+      window.dispatchEvent(new CustomEvent("walletStateChanged"));
     } catch (error: any) {
       setWalletMessage(error?.message || "Wallet disconnect failed.");
     } finally {
@@ -193,6 +197,8 @@ export function useWalletState() {
       setSavedNickname(response.nickname);
       setIsNicknameEditing(false);
       setNicknameMessage("Nickname saved.");
+      // Notify other components of wallet state change
+      window.dispatchEvent(new CustomEvent("walletStateChanged"));
     } catch (error: any) {
       const code = error?.message;
       const next =
