@@ -784,19 +784,22 @@ router.get(
     }
 
     // Query all polls for these races with their service type and provider info
+    // Use the provider relation on the poll (not raceHorse.assignedProvider) to get
+    // the actual provider that was probed, since providers may be reassigned during preflight
     const polls = await prisma.raceHorsePoll.findMany({
       where: { raceId: { in: raceIds } },
       select: {
         errorType: true,
         errorMessage: true,
         probeOk: true,
-        raceHorse: {
+        phase: true,
+        provider: {
           select: {
+            id: true,
+            moniker: true,
+            providerPubkey: true,
             serviceType: {
               select: { id: true, displayName: true, iconKey: true }
-            },
-            assignedProvider: {
-              select: { id: true, moniker: true, providerPubkey: true }
             }
           }
         }
@@ -824,10 +827,12 @@ router.get(
     >();
 
     for (const poll of polls) {
-      const serviceType = poll.raceHorse.serviceType;
-      const provider = poll.raceHorse.assignedProvider;
-      const providerPubkey = provider?.providerPubkey ?? "unknown";
-      const providerMoniker = provider?.moniker ?? "Unknown Provider";
+      // Use the provider from the poll record (the actual provider that was probed)
+      const provider = poll.provider;
+      if (!provider?.serviceType) continue; // Skip polls without provider service type
+      const serviceType = provider.serviceType;
+      const providerPubkey = provider.providerPubkey ?? "unknown";
+      const providerMoniker = provider.moniker ?? "Unknown Provider";
 
       if (!providerMap.has(providerPubkey)) {
         providerMap.set(providerPubkey, {
@@ -868,24 +873,28 @@ router.get(
       }
     }
 
-    // Convert to response format
-    const providers = Array.from(providerMap.values()).map((provider) => ({
-      providerPubkey: provider.providerPubkey,
-      providerMoniker: provider.providerMoniker,
-      services: Array.from(provider.services.values()).map((service) => ({
-        serviceTypeId: service.serviceTypeId,
-        serviceTypeName: service.serviceTypeName,
-        serviceTypeIcon: service.serviceTypeIcon,
-        totalProbes: service.totalProbes,
-        successfulProbes: service.successfulProbes,
-        successRate: service.totalProbes > 0
-          ? Math.round((service.successfulProbes / service.totalProbes) * 100)
-          : 0,
-        errors: Array.from(service.errors.entries())
-          .map(([errorType, { count, sampleMessage }]) => ({ errorType, count, sampleMessage }))
-          .sort((a, b) => b.count - a.count)
+    // Convert to response format, sorted by provider moniker asc, then service name asc
+    const providers = Array.from(providerMap.values())
+      .map((provider) => ({
+        providerPubkey: provider.providerPubkey,
+        providerMoniker: provider.providerMoniker,
+        services: Array.from(provider.services.values())
+          .map((service) => ({
+            serviceTypeId: service.serviceTypeId,
+            serviceTypeName: service.serviceTypeName,
+            serviceTypeIcon: service.serviceTypeIcon,
+            totalProbes: service.totalProbes,
+            successfulProbes: service.successfulProbes,
+            successRate: service.totalProbes > 0
+              ? Math.round((service.successfulProbes / service.totalProbes) * 100)
+              : 0,
+            errors: Array.from(service.errors.entries())
+              .map(([errorType, { count, sampleMessage }]) => ({ errorType, count, sampleMessage }))
+              .sort((a, b) => b.count - a.count)
+          }))
+          .sort((a, b) => a.serviceTypeName.localeCompare(b.serviceTypeName))
       }))
-    }));
+      .sort((a, b) => a.providerMoniker.localeCompare(b.providerMoniker));
 
     res.json({ providers });
   })

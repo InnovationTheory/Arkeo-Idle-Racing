@@ -28,6 +28,7 @@ export async function pollHorse(params: {
   handicapTier: HandicapTier;
   weather: WeatherModifiers;
   loadFactor: number;
+  providerPubkey?: string | null;
   timeoutMs?: number;
 }): Promise<PollResult> {
   if (config.racingMode === "sim") {
@@ -48,6 +49,7 @@ export async function pollHorse(params: {
         listenerPort: service.listener_port,
         healthMethod,
         healthPayload,
+        providerPubkey: params.providerPubkey ?? undefined,
         timeoutMs: params.timeoutMs
       })
     : await probeSubscriberApi({

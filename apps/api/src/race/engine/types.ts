@@ -14,6 +14,7 @@ export type HorseRuntime = {
   serviceTypeId: string;
   probeType: ProbeType;
   assignedProviderId: string | null;
+  assignedProviderPubkey: string | null;
   position: number;
   previousPosition: number; // For passing detection
   previousRank: number; // For passing detection

@@ -69,7 +69,7 @@ export default function RaceNotification() {
   if (!notification) return null;
 
   return (
-    <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 animate-pulse">
+    <div className="fixed left-1/2 top-4 z-[60] -translate-x-1/2 animate-pulse">
       <div className="flex items-center gap-3 rounded-full bg-accent px-6 py-3 shadow-lg">
         <div className="h-2 w-2 rounded-full bg-white" />
         <span className="text-sm font-semibold text-white">{notification}</span>

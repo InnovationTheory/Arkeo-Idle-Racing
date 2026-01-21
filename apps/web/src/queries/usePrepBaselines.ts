@@ -37,9 +37,10 @@ export function usePrepBaselines(raceId: string | null | undefined) {
       const latencies = probes
         .filter((p) => p.probeOk && typeof p.latencyMs === "number")
         .map((p) => p.latencyMs);
-      if (latencies.length >= 3) {
+      if (latencies.length >= 1) {
         // Use P75 (75th percentile) as baseline so that "green up" means
         // performing better than typical, not better than average
+        // With fewer probes, P75 may just be the max value, which is acceptable
         const sorted = [...latencies].sort((a, b) => a - b);
         const p75Index = Math.floor(sorted.length * 0.75);
         const p75 = sorted[p75Index];

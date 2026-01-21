@@ -254,30 +254,33 @@ export async function finishRace(raceId: string, runtime: RaceRuntime): Promise<
 
   broadcastToRace(raceId, { type: "results_ready", data: { raceId } });
 
-  // Announce winner in chat
-  const winnerRaceHorseId = [...placements.entries()].find(([, place]) => place === 1)?.[0];
-  const winnerHorse = race.raceHorses.find((rh) => rh.id === winnerRaceHorseId);
-  if (winnerHorse) {
-    postSystemChatMessage(`🏆 ${winnerHorse.horse.displayName} wins the race!`).catch(() => {});
-  }
-
-  // Congratulate players who picked top 3
-  const winningSelections = await prisma.raceSelection.findMany({
-    where: { raceId },
-    include: {
-      user: { select: { nickname: true } },
-      raceHorse: { include: { horse: { select: { displayName: true } } } }
+  // Only announce for non-RaceDay races (RaceDay has its own completion announcements)
+  if (!race.raceDayHeat) {
+    // Announce winner in chat
+    const winnerRaceHorseId = [...placements.entries()].find(([, place]) => place === 1)?.[0];
+    const winnerHorse = race.raceHorses.find((rh) => rh.id === winnerRaceHorseId);
+    if (winnerHorse) {
+      postSystemChatMessage(`🏆 ${winnerHorse.horse.displayName} wins the race!`).catch(() => {});
     }
-  });
 
-  for (const selection of winningSelections) {
-    const placement = placements.get(selection.raceHorseId);
-    if (!placement || placement > 3 || !selection.user.nickname) continue;
+    // Congratulate players who picked top 3
+    const winningSelections = await prisma.raceSelection.findMany({
+      where: { raceId },
+      include: {
+        user: { select: { nickname: true } },
+        raceHorse: { include: { horse: { select: { displayName: true } } } }
+      }
+    });
 
-    const ordinal = placement === 1 ? "1st" : placement === 2 ? "2nd" : "3rd";
-    postSystemChatMessage(
-      `🎉 Congrats ${selection.user.nickname}! ${selection.raceHorse.horse.displayName} finished ${ordinal}!`
-    ).catch(() => {});
+    for (const selection of winningSelections) {
+      const placement = placements.get(selection.raceHorseId);
+      if (!placement || placement > 3 || !selection.user.nickname) continue;
+
+      const ordinal = placement === 1 ? "1st" : placement === 2 ? "2nd" : "3rd";
+      postSystemChatMessage(
+        `🎉 Congrats ${selection.user.nickname}! ${selection.raceHorse.horse.displayName} finished ${ordinal}!`
+      ).catch(() => {});
+    }
   }
 }
 

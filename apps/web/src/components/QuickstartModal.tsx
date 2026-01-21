@@ -99,7 +99,7 @@ export default function QuickstartModal({ open, onClose, onDontShowAgain }: Quic
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6 py-10"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-6 py-10"
       role="dialog"
       aria-modal="true"
       aria-labelledby="quickstart-title"

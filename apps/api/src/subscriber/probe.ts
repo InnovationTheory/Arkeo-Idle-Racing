@@ -36,6 +36,7 @@ function buildListenerRequest(params: {
   listenerPort: number;
   healthMethod: string;
   healthPayload: string;
+  providerPubkey?: string;
 }) {
   const base = new URL(config.subscriberBaseUrl);
   base.port = String(params.listenerPort);
@@ -95,10 +96,16 @@ export async function probeListener(params: {
   listenerPort: number;
   healthMethod: string;
   healthPayload: string;
+  providerPubkey?: string;
   timeoutMs?: number;
 }): Promise<ProbeResult> {
   const request = buildListenerRequest(params);
   const timeout = params.timeoutMs ?? config.pollTimeoutMs;
+
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (params.providerPubkey) {
+    headers["X-Arkeo-Force-Provider"] = params.providerPubkey;
+  }
 
   const start = Date.now();
   try {
@@ -107,10 +114,10 @@ export async function probeListener(params: {
       request.method === "POST"
         ? {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers,
             body: JSON.stringify(request.payload ?? {})
           }
-        : { method: "GET" },
+        : { method: "GET", headers: params.providerPubkey ? { "X-Arkeo-Force-Provider": params.providerPubkey } : undefined },
       timeout
     );
 
@@ -119,6 +126,24 @@ export async function probeListener(params: {
       const errorType = `listener_${response.status}`;
       const errorMessage = `HTTP ${response.status} ${response.statusText}`;
       raceLogger.warn({ url: request.url, status: response.status, latencyMs }, `Probe failed: ${errorType}`);
+      return {
+        ok: false,
+        latencyMs,
+        errorType,
+        errorMessage,
+        headHeightDelta: 0,
+        request
+      };
+    }
+
+    // Check for HTML response (firewall/cloudflare interception)
+    const contentType = response.headers.get("content-type") || "";
+    const body = await response.text();
+    const isHtml = contentType.includes("text/html") || body.trimStart().startsWith("<");
+    if (isHtml) {
+      const errorType = "html_response";
+      const errorMessage = "Received HTML instead of JSON (possible firewall/proxy)";
+      raceLogger.error({ url: request.url, contentType, latencyMs }, `Probe failed: ${errorType}`);
       return {
         ok: false,
         latencyMs,
@@ -182,7 +207,41 @@ export async function probeSubscriberApi(params: {
       };
     }
 
-    const body = (await response.json()) as Record<string, unknown>;
+    // Check for HTML response (firewall/cloudflare interception)
+    const contentType = response.headers.get("content-type") || "";
+    const bodyText = await response.text();
+    const isHtml = contentType.includes("text/html") || bodyText.trimStart().startsWith("<");
+    if (isHtml) {
+      const errorType = "html_response";
+      const errorMessage = "Received HTML instead of JSON (possible firewall/proxy)";
+      raceLogger.error({ url: request.url, serviceId: params.serviceId, contentType, latencyMs }, `Probe failed: ${errorType}`);
+      return {
+        ok: false,
+        latencyMs,
+        errorType,
+        errorMessage,
+        headHeightDelta: 0,
+        request
+      };
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(bodyText) as Record<string, unknown>;
+    } catch {
+      const errorType = "invalid_json";
+      const errorMessage = "Response is not valid JSON";
+      raceLogger.error({ url: request.url, serviceId: params.serviceId, latencyMs }, `Probe failed: ${errorType}`);
+      return {
+        ok: false,
+        latencyMs,
+        errorType,
+        errorMessage,
+        headHeightDelta: 0,
+        request
+      };
+    }
+
     const headHeightDelta =
       typeof body.headHeightDelta === "number" ? body.headHeightDelta : 1;
 

@@ -115,6 +115,7 @@ export async function startRaceEngine(raceId: string): Promise<void> {
     serviceTypeId: entry.serviceTypeId,
     probeType: entry.serviceType.probeType,
     assignedProviderId: entry.assignedProvider?.id ?? entry.assignedProviderId ?? null,
+    assignedProviderPubkey: entry.assignedProvider?.providerPubkey ?? null,
     position: 0,
     previousPosition: 0,
     previousRank: 0,

@@ -124,9 +124,10 @@ export function useCurrentRace() {
       horses = lastHorsesRef.current;
     }
 
-    // Apply WebSocket positions for running races (these are more up-to-date than polling)
+    // Apply WebSocket positions for running/finished races (these are more up-to-date than polling)
     const wsSize = wsPositionsRef.current.size;
-    const shouldApplyWsPositions = displayRace?.status === "running" && wsSize > 0;
+    const shouldApplyWsPositions =
+      (displayRace?.status === "running" || displayRace?.status === "finished") && wsSize > 0;
 
     if (shouldApplyWsPositions) {
       return horses.map((horse) => {

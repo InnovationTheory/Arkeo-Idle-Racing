@@ -54,7 +54,10 @@
       "Bash(echo:*)",
       "Bash(DATABASE_URL=\"postgres://arkeo:arkeo@localhost:5432/arkeo_racing\" npx prisma db seed:*)",
       "Bash(DATABASE_URL=\"postgres://arkeo:arkeo@localhost:5432/arkeo_racing\" node:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(source:*)",
+      "Bash(psql:*)",
+      "Bash(PGPASSWORD=postgres psql:*)"
     ]
   }
 }

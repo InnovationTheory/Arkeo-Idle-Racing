@@ -210,7 +210,7 @@ export default function HorseCard({
             <p className="text-xl font-semibold leading-tight text-ink">
               {horse.displayName}
               {oddsDisplay && (
-                <span className="ml-2 text-base font-bold text-green-600">{oddsDisplay}</span>
+                <span className="ml-2 whitespace-nowrap text-base font-bold text-green-600">{oddsDisplay}</span>
               )}
             </p>
             <p className="text-xs uppercase tracking-[0.2em] text-slate">

@@ -106,6 +106,7 @@ export function createTickHandler(
         handicapTier: horse.handicapTier,
         weather,
         loadFactor: load,
+        providerPubkey: horse.assignedProviderPubkey,
         timeoutMs
       });
 

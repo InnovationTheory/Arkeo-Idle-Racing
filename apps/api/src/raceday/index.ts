@@ -19,6 +19,7 @@ import { assignProviders, refreshProvidersCache } from "../scheduler";
 import { refreshActiveSubscriberSnapshots } from "../subscriber/activeSnapshot";
 import { fetchSubscriberServices } from "../subscriber/discovery";
 import { broadcastToRace, broadcastToRaceDay } from "../ws";
+import { postSystemChatMessage } from "../chat/system";
 import { NotFoundError, ValidationError } from "../errors";
 import { HeatsConfig, HeatResult, HeatMetadata } from "../types/prisma-json";
 import { raceDayLogger } from "../logger";
@@ -783,6 +784,39 @@ async function runRaceDay(raceDayId: string): Promise<void> {
     });
     await broadcastRaceDayState(raceDayId);
     broadcastToRaceDay(raceDayId, { type: "raceday_completed", data: { raceDayId } });
+
+    // Announce top 3 finishers
+    const topFinishers = await prisma.raceDayHorse.findMany({
+      where: { raceDayId, finalPlacement: { in: [1, 2, 3] } },
+      include: { horse: { select: { displayName: true } } },
+      orderBy: { finalPlacement: "asc" }
+    });
+
+    for (const finisher of topFinishers) {
+      const ordinal = finisher.finalPlacement === 1 ? "1st" : finisher.finalPlacement === 2 ? "2nd" : "3rd";
+      postSystemChatMessage(`🏆 ${finisher.horse.displayName} wins ${ordinal} Place!`).catch(() => {});
+    }
+
+    // Congratulate players who backed top 3
+    const winningSelections = await prisma.raceDaySelection.findMany({
+      where: {
+        raceDayId,
+        raceDayHorse: { finalPlacement: { in: [1, 2, 3] } }
+      },
+      include: {
+        user: { select: { nickname: true } },
+        raceDayHorse: { include: { horse: { select: { displayName: true } } } }
+      }
+    });
+
+    for (const selection of winningSelections) {
+      const placement = selection.raceDayHorse.finalPlacement;
+      if (!placement || !selection.user.nickname) continue;
+      const ordinal = placement === 1 ? "1st" : placement === 2 ? "2nd" : "3rd";
+      postSystemChatMessage(
+        `🎉 Congrats ${selection.user.nickname}! ${selection.raceDayHorse.horse.displayName} finished ${ordinal}!`
+      ).catch(() => {});
+    }
   } catch (error) {
     raceDayLogger.error({ err: error, raceDayId }, "RaceDay failed");
 
@@ -1020,6 +1054,7 @@ async function runHeat(
     });
     await broadcastRaceDayState(raceDay.id);
     await startRaceEngine(raceId);
+    postSystemChatMessage(`🏇 Heat ${heat.roundNumber}-${heat.heatNumber} started on ${track.name}! Good luck to all riders!`).catch(() => {});
 
     const raceResult = await waitForRaceCompletion(raceId, runSecs + HEAT_TIMEOUT_BUFFER_SECS);
     if (!raceResult || raceResult.status === RaceStatus.voided) {

@@ -234,7 +234,7 @@ export default function PersistentChat() {
                     if (isSystem) {
                       const isRaceEvent = msg.text.startsWith("🏇") || msg.text.startsWith("🏆") || msg.text.startsWith("🎉");
                       return (
-                        <p key={msg.id} className={`mb-2 text-sm last:mb-0 ${isRaceEvent ? "text-accent2" : "text-accent"}`}>
+                        <p key={msg.id} className={`mb-2 text-sm last:mb-0 ${isRaceEvent ? "text-stone-400" : "text-accent"}`}>
                           {msg.text}
                         </p>
                       );
